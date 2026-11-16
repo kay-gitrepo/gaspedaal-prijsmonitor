@@ -74,7 +74,14 @@ def _occasion_to_item(o):
         pid=str(click).rstrip('/').rsplit('/',1)[-1] if click else None
         portals.append({'portaal_beschrijving':p.get('portaalBeschrijving'),'portaal_type':p.get('portaalType'),
                         'vehicle_id':pid,'klik_url':click})
-    return {'ad_id':o.get('advertentieId'),'title':title,
+    fotos=o.get('gpFotos') or {}
+    photos=[]
+    for key in ('fotoGroot','fotoKlein'):
+        u=fotos.get(key)
+        if isinstance(u,str) and u.startswith('https://'):
+            # Gaspedaal levert dezelfde afbeelding in meerdere formaten; neem de grote variant.
+            photos.append(u.replace('/images/small/','/images/large/'))
+    return {'ad_id':o.get('advertentieId'),'title':title,'photos':list(dict.fromkeys(photos)),
             'price':(o.get('prijs') or {}).get('totaalInclusiefBtw'),
             'year':hist.get('bouwjaar'),'kilometers':hist.get('kilometerstand'),
             'trim':alg.get('uitvoering'),

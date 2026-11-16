@@ -35,6 +35,17 @@ class Advertisement(BaseModel):
     description: str = Field(default='', max_length=50000)
     portals: list[PortalOffer] = Field(default_factory=list,max_length=50)
     license_plate: str | None = Field(default=None,max_length=20)
+    photos: list[str] = Field(default_factory=list,max_length=60)
+
+    @field_validator('photos')
+    @classmethod
+    def https_photos(cls, value):
+        clean=[]
+        for v in value:
+            p=urlsplit(str(v))
+            if p.scheme=='https' and p.hostname and not p.username and not p.password and len(v)<=1000 and v not in clean:
+                clean.append(v)
+        return clean
 
     @field_validator('url')
     @classmethod

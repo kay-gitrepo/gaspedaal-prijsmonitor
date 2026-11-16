@@ -20,6 +20,7 @@ class DetailResult:
     source_url: str | None = None
     text: str = ''
     error: str | None = None
+    photos: list = None
 
 def allowed_detail_url(url, hosts):
     try:
@@ -40,12 +41,16 @@ def allowed_redirect_url(url):
 class AdText(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.skip=0;self.text=[];self.ld=False;self.ld_parts=[];self.ld_list=[];self.description=[]
+        self.skip=0;self.text=[];self.ld=False;self.ld_parts=[];self.ld_list=[];self.description=[];self.images=[]
     def handle_starttag(self,tag,attrs):
         a=dict(attrs)
         if tag in ('script','style','nav','footer','header','noscript'):self.skip+=1
         if tag=='script' and a.get('type')=='application/ld+json':self.ld=True;self.ld_parts=[]
         if tag=='meta' and a.get('name','').lower()=='description':self.description.append(a.get('content',''))
+        if tag=='meta' and a.get('property','').lower()=='og:image' and a.get('content'):self.images.append(a['content'])
+        if tag=='img' and not self.skip:
+            for k in ('data-src','src'):
+                if a.get(k):self.images.append(a[k]);break
         if tag in ('p','li','h1','h2','h3','dd','dt','br') and not self.skip:self.text.append('\n')
     def handle_endtag(self,tag):
         if tag=='script' and self.ld:self.ld_list.append(''.join(self.ld_parts));self.ld=False
@@ -63,6 +68,25 @@ def extract_advertiser_text(raw):
             if isinstance(item,dict) and isinstance(item.get('description'),str):parts.append(item['description'])
     parts.extend(p.description[:1]);parts.append(''.join(p.text))
     return '\n'.join(html.unescape(re.sub(r'[ \t]+',' ',v)).strip() for v in parts if len(v.strip())>=30)[:16000]
+
+def extract_photos(raw,base_url):
+    """Foto-URL's (https) uit og:image, JSON-LD `image` en <img>; kleine pictogrammen worden overgeslagen."""
+    p=AdText();p.feed(raw[:800_000]);found=[]
+    for value in p.ld_list:
+        try:obj=json.loads(value)
+        except ValueError:continue
+        for item in obj if isinstance(obj,list) else [obj]:
+            img=item.get('image') if isinstance(item,dict) else None
+            found.extend([img] if isinstance(img,str) else [i for i in (img or []) if isinstance(i,str)])
+    found.extend(p.images)
+    out=[]
+    for u in found:
+        u=urljoin(base_url,html.unescape(u).strip())
+        low=u.lower().split('?')[0]
+        if urlsplit(u).scheme!='https' or not low.endswith(('.jpg','.jpeg','.png','.webp')):continue
+        if any(w in low for w in ('logo','icon','sprite','avatar','placeholder')):continue
+        if u not in out:out.append(u)
+    return out[:30]
 
 def fetch_advertiser_text(offers,client=None):
     hosts={x.strip().lower() for x in settings.advertiser_detail_hosts.split(',') if x.strip()}
@@ -92,7 +116,7 @@ def fetch_advertiser_text(offers,client=None):
                     content=b''.join(chunks).decode(r.encoding or 'utf-8',errors='replace')
                 text=extract_advertiser_text(content)
                 if len(text)<80:return DetailResult(offer.portal_id,'NO_DETAIL_TEXT',url,error='Geen bruikbare advertentietekst')
-                return DetailResult(offer.portal_id,'SUCCESS',url,text)
+                return DetailResult(offer.portal_id,'SUCCESS',url,text,photos=extract_photos(content,url))
             except httpx.HTTPError as exc:
                 return DetailResult(offer.portal_id,'HTTP_ERROR',url,error=type(exc).__name__)
         return DetailResult(None,'NO_ALLOWED_SOURCE',error='Geen toegestane detailpagina')

@@ -101,6 +101,7 @@ def normalized_ad(item: dict, field_map: dict[str, str]) -> Advertisement:
         'description': field('description', 'description', 'advertisementText', 'vehicle.description'),
         'portals': normalize_portals(item),
         'license_plate':field('license_plate','license_plate','registration','vehicle.license_plate'),
+        'photos':item.get('photos') if isinstance(item.get('photos'),list) else [],
     }
     if vehicle['external_id'] is not None: vehicle['external_id'] = str(vehicle['external_id'])
     if isinstance(vehicle['description'], list): vehicle['description'] = '\n'.join(map(str, vehicle['description']))

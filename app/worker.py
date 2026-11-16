@@ -129,7 +129,10 @@ def scan_profile(con,run_id,profile,criteria):
                 continue
             if detail.status=='NO_ALLOWED_SOURCE':continue
             details[ad.external_id]=detail
-            if detail.status=='SUCCESS':ad.description=detail.text
+            if detail.status=='SUCCESS':
+                ad.description=detail.text
+                try:ad.photos=list(dict.fromkeys([*ad.photos,*(detail.photos or [])]))[:60]
+                except ValueError:pass
             remaining-=1
     seen=set()
     candidate_ids=set()
@@ -150,16 +153,17 @@ def scan_profile(con,run_id,profile,criteria):
                 # analyze_listing checks a content+criteria+model fingerprint and skips cache hits.
                 candidate_ids.add(listing_id)
                 con.execute('''UPDATE listings SET title=?,url=?,year=?,kilometers=?,trim=?,seller=?,price_eur=?,
-                   description=?,text_hash=?,last_seen=?,updated_at=?,availability='ACTIVE' WHERE id=?''',
+                   description=?,text_hash=?,last_seen=?,updated_at=?,availability='ACTIVE',photos_json=? WHERE id=?''',
                    (ad.title,ad.url,ad.year,ad.kilometers,ad.trim,ad.seller,ad.price_eur,
-                    ad.description or previous['description'],content_hash if ad.description or not previous['description'] else previous['text_hash'],now(),now(),listing_id))
+                    ad.description or previous['description'],content_hash if ad.description or not previous['description'] else previous['text_hash'],now(),now(),
+                    dumps(ad.photos or json.loads(previous['photos_json'] or '[]')),listing_id))
             else:
                 stats['new']+=1
                 candidate_ids.add(listing_id)
                 con.execute('''INSERT INTO listings(id,external_id,title,url,year,kilometers,trim,seller,price_eur,
-                  description,text_hash,first_seen,last_seen,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  description,text_hash,first_seen,last_seen,updated_at,photos_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                   (listing_id,ext_id,ad.title,ad.url,ad.year,ad.kilometers,ad.trim,ad.seller,ad.price_eur,
-                   ad.description,content_hash,now(),now(),now()))
+                   ad.description,content_hash,now(),now(),now(),dumps(ad.photos)))
                 con.execute('INSERT INTO listing_events(run_id,listing_id,event_type,new_price,created_at) VALUES(?,?,?,?,?)',
                             (run_id,listing_id,'FIRST_SEEN',ad.price_eur,now()))
             # One car, multiple advertisers; retain per-portal price measurements.

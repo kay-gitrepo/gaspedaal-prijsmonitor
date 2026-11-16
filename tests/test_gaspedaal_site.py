@@ -56,6 +56,7 @@ def test_parse_nextjs_flight_occasions():
           "autogegevens":{"algemeen":{"merknaam":"Volvo","modelnaam":"XC90","uitvoering":"T8"},
                           "geschiedenis":{"bouwjaar":2019,"kilometerstand":100000}},
           "prijs":{"totaalInclusiefBtw":38950},
+          "gpFotos":{"fotoKlein":"https://cdn.gaspedaal.nl/images/small/abc.jpg?source=x","fotoGroot":"https://cdn.gaspedaal.nl/images/small/abc.jpg?source=x"},
           "portalen":[{"klikUrl":"https://www.gaspedaal.nl/api/proxy/redirect/vehicle/42",
                        "portaalBeschrijving":"AutoTrack","portaalType":"other"}]}]
     payload=json.dumps('{"numberOfPages":1,"occasions":'+json.dumps(occ)+'}')
@@ -64,6 +65,7 @@ def test_parse_nextjs_flight_occasions():
     assert total==1 and len(ads)==1
     ad=ads[0]
     assert (ad.external_id,ad.price_eur,ad.year,ad.kilometers,ad.title)==('1',38950,2019,100000,'Volvo XC90 T8')
+    assert ad.photos==['https://cdn.gaspedaal.nl/images/large/abc.jpg?source=x']
     assert ad.portals[0].site=='AutoTrack' and ad.portals[0].portal_id=='42'
 
 
@@ -81,3 +83,10 @@ def test_profile_without_snapshot_uses_search_url_when_approved(monkeypatch):
     assert isinstance(provider.provider_for(row),site.GaspedaalSiteProvider)
     assert isinstance(provider.provider_for(_P({'provider':'fixture','fixture_payload':None})),site.GaspedaalSiteProvider)
     assert isinstance(provider.provider_for(_P({'provider':'fixture','fixture_payload':'{}'})),provider.FixtureProvider)
+
+
+def test_extract_photos_from_dealer_page():
+    from app.source_details import extract_photos
+    raw=('<html><head><meta property="og:image" content="https://d.nl/a.jpg"></head><body>'
+         '<img src="/media/b.JPG"><img src="https://d.nl/logo.png"><img src="http://d.nl/c.jpg"></body></html>')
+    assert extract_photos(raw,'https://d.nl/auto/1')==['https://d.nl/a.jpg','https://d.nl/media/b.JPG']

@@ -134,6 +134,9 @@ def init_db():
     con = connect()
     try:
         con.executescript(SCHEMA)
+        cols={r[1] for r in con.execute('PRAGMA table_info(listings)')}
+        if 'photos_json' not in cols:
+            con.execute("ALTER TABLE listings ADD COLUMN photos_json TEXT NOT NULL DEFAULT '[]'")
         if not con.execute('SELECT 1 FROM criteria LIMIT 1').fetchone():
             for key, label, group, weight, description, synonyms in DEFAULT_CRITERIA:
                 con.execute('INSERT INTO criteria VALUES (?,?,?,?,?,?,?,?)',
