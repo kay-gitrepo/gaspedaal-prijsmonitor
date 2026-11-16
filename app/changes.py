@@ -9,7 +9,7 @@ EVENT_GROUP = {'FIRST_SEEN': 'new', 'MISSING_UNCONFIRMED': 'missing', 'OFF_MARKE
 def is_check(scope_json):
     """Een herbeoordeling zonder ophalen telt niet als controle van het aanbod."""
     scope = json.loads(scope_json or '"all"')
-    return not (isinstance(scope, dict) and 'analyze_listing_ids' in scope)
+    return not (isinstance(scope, dict) and ('analyze_listing_ids' in scope or 'analyze' in scope))
 
 
 def covers(scope_json, profile_id):

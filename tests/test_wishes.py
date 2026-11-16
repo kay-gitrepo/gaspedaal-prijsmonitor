@@ -17,15 +17,15 @@ def claims_for(external_id):
         con.close()
 
 
-def criterion(client, key):
-    return next(c for c in client.get('/api/v1/criteria').json()['items'] if c['key'] == key)
+def criterion(client, key, pid):
+    return next(c for c in client.get(f'/api/v1/criteria?profile_id={pid}').json()['items'] if c['key'] == key)
 
 
 def put(client, headers, c, **changes):
     body = {k: c[k] for k in ('label', 'group_name', 'weight', 'description', 'synonyms', 'match_terms')}
     body['enabled'] = bool(c['enabled'])
     body.update(changes)
-    r = client.put(f"/api/v1/criteria/{c['key']}", headers=headers, json=body)
+    r = client.put(f"/api/v1/criteria/{c['key']}?profile_id={c['profile_id']}", headers=headers, json=body)
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -39,18 +39,20 @@ def test_weight_change_recalculates_without_reassessment():
         run(client, headers, pid, cars)
         con = connect()
         try:
-            before = dict(con.execute('''SELECT analyzed_hash,score_total,eligibility FROM listings
-                                         WHERE external_id='import:w6-1' ''').fetchone())
+            before = dict(con.execute('''SELECT pl.analyzed_hash,pl.score_total,pl.eligibility FROM profile_listings pl
+                JOIN listings l ON l.id=pl.listing_id WHERE l.external_id='import:w6-1' AND pl.profile_id=?''',
+                (pid,)).fetchone())
             calls = con.execute('SELECT COUNT(*) FROM integration_requests').fetchone()[0]
         finally:
             con.close()
-        roof = criterion(client, 'panoramic_roof')
+        roof = criterion(client, 'panoramic_roof', pid)
         out = put(client, headers, roof, weight=5, group_name='MUST_HAVE')
         assert out['reassess'] is False
         con = connect()
         try:
-            after = dict(con.execute('''SELECT analyzed_hash,score_total,eligibility FROM listings
-                                        WHERE external_id='import:w6-1' ''').fetchone())
+            after = dict(con.execute('''SELECT pl.analyzed_hash,pl.score_total,pl.eligibility FROM profile_listings pl
+                JOIN listings l ON l.id=pl.listing_id WHERE l.external_id='import:w6-1' AND pl.profile_id=?''',
+                (pid,)).fetchone())
             assert con.execute('SELECT COUNT(*) FROM integration_requests').fetchone()[0] == calls
         finally:
             con.close()
@@ -59,7 +61,8 @@ def test_weight_change_recalculates_without_reassessment():
         # De volgende controle hergebruikt de beoordeling: gewicht zit niet in de vingerafdruk.
         out = run(client, headers, pid, cars)
         assert out['summary']['cache_hits'] == 1
-        put(client, headers, criterion(client, 'panoramic_roof'), weight=roof['weight'], group_name=roof['group_name'])
+        put(client, headers, criterion(client, 'panoramic_roof', pid), weight=roof['weight'],
+            group_name=roof['group_name'])
 
 
 def test_new_wish_is_recognised_locally_with_negation_and_hedge():
@@ -73,7 +76,7 @@ def test_new_wish_is_recognised_locally_with_negation_and_hedge():
              'description': 'Elektrische achterklep tegen meerprijs.'},
         ])
         r = client.post('/api/v1/criteria', headers=headers, json={
-            'label': 'Elektrische achterklep', 'group_name': 'MUST_HAVE', 'weight': 4,
+            'profile_id': pid, 'label': 'Elektrische achterklep', 'group_name': 'MUST_HAVE', 'weight': 4,
             'match_terms': ['elektrische achterklep', 'elektrisch bedienbare achterklep']})
         assert r.status_code == 201
         key = r.json()['key']
@@ -83,18 +86,22 @@ def test_new_wish_is_recognised_locally_with_negation_and_hedge():
         assert claims_for('import:w6-b')['towbar'] == 'PRESENT'  # ontkenning geldt alleen voor het eigen zinsdeel
         assert claims_for('import:w6-c')[key] == 'UNKNOWN'
         # Tweede wens met hetzelfde label krijgt een uniek volgnummer; verwijderen bewaart de beoordelingen.
-        again = client.post('/api/v1/criteria', headers=headers, json={'label': 'Elektrische achterklep'})
+        again = client.post('/api/v1/criteria', headers=headers, json={'profile_id': pid,
+                                                                       'label': 'Elektrische achterklep'})
         assert again.json()['key'] == 'elektrische_achterklep_2'
         for k in (key, 'elektrische_achterklep_2'):
-            assert client.delete(f'/api/v1/criteria/{k}', headers=headers).status_code == 200
-        assert key not in [c['key'] for c in client.get('/api/v1/criteria').json()['items']]
+            assert client.delete(f'/api/v1/criteria/{k}?profile_id={pid}', headers=headers).status_code == 200
+        assert key not in [c['key'] for c in client.get(f'/api/v1/criteria?profile_id={pid}').json()['items']]
         assert claims_for('import:w6-a')[key] == 'PRESENT'
 
 
 def test_19_inch_wheels_are_not_22_inch():
+    with TestClient(app) as client:
+        headers = login(client)
+        pid = new_profile(client, headers, 'WP06 velgen', 'https://www.gaspedaal.nl/volvo/xc90/velgen')
     con = connect()
     try:
-        criteria = get_criteria(con)
+        criteria = get_criteria(con, pid)
     finally:
         con.close()
     assert 'wheels_22' not in local_claims('Mooie 19 inch velgen en nieuwe wielen', criteria)

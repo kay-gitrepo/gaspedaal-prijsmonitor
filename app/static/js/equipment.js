@@ -19,6 +19,8 @@ function origin(c) {
   return label(CLAIM_SOURCE, c.source, 'Uit de advertentie');
 }
 
+let profileCtx = '';
+
 function claimRow(id, c) {
   const manual = c.source === 'MANUAL_OVERRIDE';
   const quote = c.evidence ? `<p><mark>“${esc(c.evidence)}”</mark></p>` : '';
@@ -27,9 +29,9 @@ function claimRow(id, c) {
     : '';
   const value = OPTIONS.some(([v]) => v === c.status) ? c.status : 'UNKNOWN';
   const undo = manual ? button('Terug naar automatisch', {variant: 'text', size: 's', icon: 'refresh',
-    action: 'undo-review', data: {id, key: c.criterion_key}}) : '';
+    action: 'undo-review', data: {id, key: c.criterion_key, profile: profileCtx}}) : '';
   const note = manual ? `<form class="claim-note" data-submit="review-note" data-id="${esc(id)}"
-      data-key="${esc(c.criterion_key)}" data-status="${esc(c.status)}">
+      data-key="${esc(c.criterion_key)}" data-status="${esc(c.status)}" data-profile="${esc(profileCtx)}">
       <input class="input" name="evidence" maxlength="400" value="${esc(c.evidence || '')}"
         aria-label="Notitie bij je oordeel over ${esc(c.label)}"
         placeholder="Bron, bijvoorbeeld: dealer bevestigd per mail op 14-11">
@@ -38,12 +40,14 @@ function claimRow(id, c) {
     ${badge(label(GROUP, c.group_name), c.group_name === 'MUST_HAVE' ? 'info' : 'neutral')}${quote}
     <p>${esc(how)}${log}</p></div>
     <div class="claim-edit">${segment(`claim-${c.criterion_key}`, OPTIONS, manual ? value : '',
-      {label: `Jouw oordeel over ${c.label}`, data: {change: 'claim-status', id, key: c.criterion_key}})}${undo}</div>
+      {label: `Jouw oordeel over ${c.label}`, data: {change: 'claim-status', id, key: c.criterion_key,
+        profile: profileCtx}})}${undo}</div>
     ${note}</div>`;
 }
 
 /** Drie groepen: Bevestigd · Ontbreekt · Onzeker; daaronder de beoordeelde tekst en "Opnieuw beoordelen". */
-export function equipmentHtml(id, claims, {assessedText = ''} = {}) {
+export function equipmentHtml(id, claims, {assessedText = '', profileId = ''} = {}) {
+  profileCtx = profileId || '';
   if (!claims.length) return '<p class="muted">Er zijn nog geen wensen ingesteld.</p>';
   const groups = [
     ['Bevestigd', 'check-circle', claims.filter(c => c.status === 'PRESENT')],
@@ -107,8 +111,8 @@ export function equipmentActions(reload) {
   return {
     actions: {
       async 'undo-review'(el) {
-        const r = await api(`/listings/${encodeURIComponent(el.dataset.id)}/review/${encodeURIComponent(el.dataset.key)}`,
-          {method: 'DELETE'});
+        const r = await api(`/listings/${encodeURIComponent(el.dataset.id)}/review/${encodeURIComponent(el.dataset.key)}`
+          + `?profile_id=${encodeURIComponent(el.dataset.profile || '')}`, {method: 'DELETE'});
         toast('Terug naar automatisch. De auto wordt opnieuw beoordeeld.', 'info');
         await reload(el.dataset.id);
         if (r.run_id) await follow(r.run_id);
@@ -127,7 +131,8 @@ export function equipmentActions(reload) {
     },
     changes: {
       async 'claim-status'(el) {
-        const body = {criterion_key: el.dataset.key, status: el.value, evidence: null};
+        const body = {criterion_key: el.dataset.key, status: el.value, evidence: null,
+          profile_id: el.dataset.profile || null};
         await api(`/listings/${encodeURIComponent(el.dataset.id)}/review`, {method: 'POST', body});
         toast('Oordeel opgeslagen');
         await reload(el.dataset.id);
@@ -136,7 +141,8 @@ export function equipmentActions(reload) {
     submits: {
       async 'review-note'(form) {
         const evidence = new FormData(form).get('evidence') || null;
-        const body = {criterion_key: form.dataset.key, status: form.dataset.status, evidence};
+        const body = {criterion_key: form.dataset.key, status: form.dataset.status, evidence,
+          profile_id: form.dataset.profile || null};
         await api(`/listings/${encodeURIComponent(form.dataset.id)}/review`, {method: 'POST', body});
         toast('Notitie opgeslagen');
         await reload(form.dataset.id);

@@ -4,20 +4,16 @@ from datetime import datetime, timedelta, timezone
 from app.insights import listing_insights
 from app.market import (daily_last, daily_stats, drop_stats, km_classes, median_or_none, price_index, summary,
                         trend_sentence, weekly_flow)
+from app.scope import scored_listings
 from app.valuation_data import market_positions
 
 CANDIDATE = ('MATCH', 'UNVERIFIED', 'REVIEW')
 
 
 def _scope(con, profile_id):
-    columns = '''l.id,l.title,l.price_eur,l.year,l.kilometers,l.eligibility,l.score_total,l.score_potential,
-                 l.first_seen,l.last_seen,l.analyzed_hash,TRIM(l.description)!='' AS has_text'''
-    if profile_id:
-        rows = con.execute(f'''SELECT {columns},pl.status AS availability FROM listings l
-                              JOIN profile_listings pl ON pl.listing_id=l.id WHERE pl.profile_id=?''', (profile_id,))
-    else:
-        rows = con.execute(f'SELECT {columns},l.availability FROM listings l')
-    return [dict(r) for r in rows]
+    columns = '''l.id,l.title,l.price_eur,l.year,l.kilometers,l.first_seen,l.last_seen,l.availability,
+                 TRIM(l.description)!='' AS has_text'''
+    return scored_listings(con, columns, profile_id)
 
 
 def _budget(con, profile_id):

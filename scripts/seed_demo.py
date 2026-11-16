@@ -81,7 +81,6 @@ def reset(con):
     for table in TABLES:
         con.execute(f'DELETE FROM {table}')
     con.execute('DELETE FROM criteria')
-    insert_default_criteria(con)
 
 
 def main():
@@ -120,6 +119,10 @@ def seed(con):
         con.execute('''INSERT INTO search_profiles(id,title,search_url,provider,fixture_payload,enabled,created_at,
                        updated_at,budget_eur) VALUES(?,?,?,?,?,1,?,?,?)''',
                     (p['id'], p['title'], p['url'], 'fixture', '{}', created, created, p['budget']))
+        insert_default_criteria(con, p['id'])
+    # Wensen per zoekopdracht: in de tweede zoekopdracht is een trekhaak mooi meegenomen, geen eis.
+    con.execute('''UPDATE criteria SET group_name='NICE_TO_HAVE',weight=3 WHERE profile_id=? AND key='towbar' ''',
+                (PROFILES[1]['id'],))
     ids = {}
     price_now = {}
     status = {}          # (profiel, auto) -> status in die zoekopdracht
@@ -226,9 +229,11 @@ def seed(con):
                    if status.get((p['id'], plan['ad']['external_id'])) == 'ACTIVE']
         con.execute('UPDATE search_profiles SET fixture_payload=? WHERE id=?',
                     (dumps({'complete': True, 'metadata': {}, 'listings': current}), p['id']))
-    criteria = get_criteria(con)
-    for listing_id in ids.values():
-        analyze_listing(con, listing_id, run_id, criteria)
+    for p in PROFILES:
+        criteria = get_criteria(con, p['id'])
+        for (listing_id,) in con.execute('SELECT listing_id FROM profile_listings WHERE profile_id=?',
+                                         (p['id'],)).fetchall():
+            analyze_listing(con, p['id'], listing_id, run_id, criteria)
 
 
 if __name__ == '__main__':

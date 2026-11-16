@@ -3,11 +3,14 @@ import {api} from '../api.js';
 import {esc, fmt} from '../format.js';
 import {$, $$, button, closeDialogView, dialogHead, field, icon, menu, notice, openDialog, pageHead, segment,
   skeletons, toast} from '../ui.js';
-import {profileQuery} from '../context.js';
+import {allProfiles, profileId} from '../context.js';
+import {follow} from '../refresh.js';
 import {hasText} from '../status.js';
 
 let criteria = [];
+let profile = null;
 const open = new Set();
+const q = () => `profile_id=${encodeURIComponent(profile)}`;
 const GROUPS = [['MUST_HAVE', 'Must-haves', 'Ontbreekt er één aantoonbaar, dan valt de auto af.'],
   ['NICE_TO_HAVE', 'Nice-to-haves', 'Leveren extra punten op in de match.']];
 const WEIGHTS = [1, 2, 3, 4, 5].map(w => [String(w), String(w)]);
@@ -57,14 +60,14 @@ function board() {
     return `<section class="card wish-column" data-drop-group="${group}" aria-labelledby="col-${group}">
       <div class="card-head"><div><h3 id="col-${group}">${title}</h3><p>${text}</p></div>
       <span class="badge badge-neutral">${fmt(list.length)}</span></div>
-      <div class="stack">${list.map(wishCard).join('') || '<p class="muted">Sleep een wens hierheen.</p>'}</div></section>`;
+      <div class="stack">${list.map(wishCard).join('') || '<p class="muted">Sleep een wens hierheen, of kies “Verplaats naar” in het menu van een wens.</p>'}</div></section>`;
   }).join('');
 }
 
 async function updateCounts() {
   const el = $('#wish-counts');
   if (!el) return;
-  const items = (await api('/listings' + profileQuery())).items.filter(x => x.availability === 'ACTIVE');
+  const items = (await api('/listings?' + q())).items.filter(x => x.availability === 'ACTIVE');
   const count = f => items.filter(f).length;
   const noText = count(x => !hasText(x) && x.eligibility === 'UNVERIFIED');
   const parts = [`<strong>${fmt(count(x => x.eligibility === 'MATCH'))}</strong> voldoen`,
@@ -79,8 +82,25 @@ function drawBoard() {
   $('#wish-board').innerHTML = board();
 }
 
-export async function render() {
-  criteria = (await api('/criteria')).items;
+function profilePicker(profiles) {
+  const options = profiles.map(p => `<option value="${esc(p.id)}"${p.id === profile ? ' selected' : ''}>${esc(p.title)}
+    </option>`).join('');
+  const copy = profiles.length > 1 ? button('Wensen kopiëren van …', {icon: 'copy', action: 'copy-wishes'}) : '';
+  return `<div class="wish-profile"><div class="field"><label for="wish-profile">Wensen voor zoekopdracht</label>
+    <select id="wish-profile" class="input" data-change="wish-profile">${options}</select></div>${copy}</div>`;
+}
+
+export async function render(params = new URLSearchParams()) {
+  const profiles = allProfiles();
+  if (!profiles.length) {
+    $('#content').innerHTML = pageHead('Mijn wensen') + `<section class="card">${'<p class="muted">Voeg eerst een '
+      + 'zoekopdracht toe; wensen horen bij een zoekopdracht.</p>'}${button('Naar zoekopdrachten',
+      {href: '#/zoekopdrachten', variant: 'primary'})}</section>`;
+    return;
+  }
+  const wanted = params.get('zoekopdracht') || profileId();
+  profile = profiles.some(p => p.id === wanted) ? wanted : profiles[0].id;
+  criteria = (await api('/criteria?' + q())).items;
   try {
     localStorage.setItem('occasioniq.wensen-bekeken', '1');
   } catch {
@@ -88,7 +108,7 @@ export async function render() {
   }
   $('#content').innerHTML = pageHead('Mijn wensen', 'Welke uitrusting moet de auto hebben, en wat is mooi meegenomen?',
     button('Wens toevoegen', {variant: 'primary', icon: 'plus', action: 'add-wish'}))
-    + notice('Staat een optie niet in de advertentie, dan geldt die als onbekend, niet als afwezig.')
+    + profilePicker(profiles) + notice('Staat een optie niet in de advertentie, dan geldt die als onbekend, niet als afwezig.')
     + `<p class="wish-counts" id="wish-counts" aria-live="polite">&nbsp;</p>
     <div class="grid grid-2-even" id="wish-board">${board()}</div>
     <p class="muted small">Wijzigingen worden direct opgeslagen. De match telt must-haves voor 70% en nice-to-haves voor
@@ -102,7 +122,7 @@ const find = key => criteria.find(c => c.key === key);
 async function save(c, message = 'Opgeslagen') {
   const body = {label: c.label, group_name: c.group_name, weight: Number(c.weight), description: c.description,
     synonyms: c.synonyms, match_terms: c.match_terms, enabled: true};
-  const r = await api('/criteria/' + encodeURIComponent(c.key), {method: 'PUT', body});
+  const r = await api(`/criteria/${encodeURIComponent(c.key)}?${q()}`, {method: 'PUT', body});
   toast(r.reassess ? `${message}. Wordt bij de volgende controle opnieuw beoordeeld.` : message);
   await updateCounts();
 }
@@ -155,7 +175,24 @@ function drawDraft(s) {
       ${button('Annuleren', {attrs: {'data-close': true}})}</div></form>`;
 }
 
+function copyDialog() {
+  const others = allProfiles().filter(p => p.id !== profile);
+  const current = allProfiles().find(p => p.id === profile);
+  const options = others.map(p => `<option value="${esc(p.id)}">${esc(p.title)}</option>`).join('');
+  openDialog(dialogHead('Wensen kopiëren', `Naar: ${current?.title || ''}`) + `<section class="card">
+    <form data-submit="copy-wishes" class="stack"><div class="field"><label for="copy-from">Kopiëren van</label>
+      <select id="copy-from" name="from" class="input">${options}</select></div>
+      ${notice('De wensen van deze zoekopdracht worden vervangen door die van de gekozen zoekopdracht. Wensen die daar '
+        + 'niet in staan worden uitgezet; je eigen correcties blijven bewaard. Daarna worden de auto\'s opnieuw '
+        + 'beoordeeld.', 'warning')}
+      <div class="row">${button('Kopiëren', {type: 'submit', variant: 'primary', icon: 'copy'})}
+        ${button('Annuleren', {attrs: {'data-close': true}})}</div></form></section>`);
+}
+
 export const actions = {
+  'copy-wishes'() {
+    copyDialog();
+  },
   'add-wish'() {
     draft = null;
     addDialog();
@@ -173,10 +210,10 @@ export const actions = {
       ${button('Annuleren', {attrs: {'data-close': true}})}</div></section>`);
   },
   async 'confirm-delete-wish'(el) {
-    await api('/criteria/' + encodeURIComponent(el.dataset.key), {method: 'DELETE'});
+    await api(`/criteria/${encodeURIComponent(el.dataset.key)}?${q()}`, {method: 'DELETE'});
     closeDialogView();
     toast('Wens verwijderd');
-    await render();
+    await render(new URLSearchParams({zoekopdracht: profile}));
   },
   async 'remove-chip'(el) {
     const target = draft && $('#dialog')?.contains(el) ? draft : find(el.dataset.key);
@@ -213,6 +250,9 @@ export const keydowns = {
 };
 
 export const changes = {
+  'wish-profile'(el) {
+    location.hash = `#/wensen?zoekopdracht=${encodeURIComponent(el.value)}`;
+  },
   async 'wish-weight'(el) {
     const c = find(el.dataset.key);
     c.weight = Number(el.value);
@@ -226,6 +266,14 @@ export const changes = {
 };
 
 export const submits = {
+  async 'copy-wishes'(form) {
+    const from = new FormData(form).get('from');
+    const r = await api('/criteria/copy', {method: 'POST', body: {from_profile_id: from, to_profile_id: profile}});
+    closeDialogView();
+    toast(`${r.copied} wensen gekopieerd`);
+    await render(new URLSearchParams({zoekopdracht: profile}));
+    if (r.run_id) await follow(r.run_id);
+  },
   async 'suggest-wish'(form) {
     const label = new FormData(form).get('label').trim();
     if (label.length < 2) return;
@@ -238,13 +286,14 @@ export const submits = {
   },
   async 'create-wish'(form) {
     const d = Object.fromEntries(new FormData(form));
-    const body = {label: draft.label, group_name: d.group_name, weight: Number(d.weight), description: d.description || '',
+    const body = {profile_id: profile, label: draft.label, group_name: d.group_name, weight: Number(d.weight),
+      description: d.description || '',
       synonyms: draft.synonyms, match_terms: draft.match_terms};
     await api('/criteria', {method: 'POST', body});
     closeDialogView();
     toast(`Wens "${draft.label}" toegevoegd`);
     draft = null;
-    await render();
+    await render(new URLSearchParams({zoekopdracht: profile}));
   },
 };
 

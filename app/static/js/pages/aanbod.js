@@ -4,7 +4,7 @@ import {api} from '../api.js';
 import {datum, esc, euro, fmt, relatief} from '../format.js';
 import {AVAILABILITY} from '../labels.js';
 import {$, badge, button, card, emptyState, icon, notice, pageHead, skeletons, statusBadge, table, tabs} from '../ui.js';
-import {profileQuery} from '../context.js';
+import {profileId, profileQuery} from '../context.js';
 import {matchCell, statusChip} from '../status.js';
 import {failureNotice} from '../freshness.js';
 import {marketCell} from '../negotiation.js';
@@ -148,7 +148,8 @@ function row(x, gone) {
       ${esc(relatief(x.last_seen))}</span></div>`, inView(x), status(x), star(x)]);
   }
   return head.concat([`<div><strong>${euro(x.price_eur)}</strong>${priceChange(x)}</div>`, `<div>${marketCell(x)}</div>`,
-    matchCell(x, {detail: false}),
+    matchCell(x, {detail: false}) + (!profileId() && x.score_profile_title
+      ? `<span class="sub">volgens ${esc(x.score_profile_title)}</span>` : ''),
     inView(x), status(x), star(x)]);
 }
 

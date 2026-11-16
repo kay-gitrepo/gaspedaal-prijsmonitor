@@ -18,14 +18,16 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.config import settings
 from app.version import VERSION
-from app.db import connect, dumps, init_db, now, rowdict, uid
+from app.db import connect, dumps, init_db, insert_default_criteria, now, rowdict, uid
 from app.extraction import cleaned_text, sha256 as text_hash
 from app.insights import first_photo, listing_insights
 from app import changes as run_changes
 from app.valuation_data import market_positions, valuation_for
 from app.market_data import market_overview
 from app.provider import Snapshot, validate_search_url
-from app.worker import start_worker, stop_worker, get_criteria, recalculate_score, recalculate_all, apply_local_claims
+from app.worker import (start_worker, stop_worker, get_criteria, recalculate_score, recalculate_all,
+                        apply_local_claims, profiles_of)
+from app.scope import PL_SCORES, context_profile, criteria_labels, scored_listings
 
 ROOT = Path(__file__).parent
 
@@ -78,12 +80,17 @@ class CriterionBody(BaseModel):
     enabled: bool = True
 
 class CriterionCreate(BaseModel):
+    profile_id: str | None = None
     label: str = Field(min_length=2,max_length=90)
     group_name: str = 'NICE_TO_HAVE'
     weight: int = Field(default=3,ge=1,le=5)
     description: str = Field(default='',max_length=350)
     synonyms: list[str] = Field(default_factory=list,max_length=30)
     match_terms: list[str] = Field(default_factory=list,max_length=20)
+
+class CopyCriteriaBody(BaseModel):
+    from_profile_id: str
+    to_profile_id: str
 
 class SuggestBody(BaseModel):
     label: str = Field(min_length=2,max_length=90)
@@ -93,6 +100,7 @@ class RefreshBody(BaseModel):
     reason: str = Field(default='manual',max_length=80)
 
 class ReviewBody(BaseModel):
+    profile_id: str | None = None
     criterion_key: str
     status: str
     evidence: str | None = Field(default=None,max_length=400)
@@ -200,7 +208,7 @@ def profiles(archived:bool=False,_=Depends(require_ui),con=Depends(connection)):
         p.fixture_payload IS NOT NULL AS has_snapshot,p.budget_eur,p.archived_at,p.scope_changed_at,
         (SELECT COUNT(*) FROM profile_listings pl WHERE pl.profile_id=p.id AND pl.status='ACTIVE') AS listings_active,
         (SELECT COUNT(*) FROM profile_listings pl JOIN listings l ON l.id=pl.listing_id
-           WHERE pl.profile_id=p.id AND pl.status='ACTIVE' AND l.eligibility='MATCH') AS listings_match
+           WHERE pl.profile_id=p.id AND pl.status='ACTIVE' AND pl.eligibility='MATCH') AS listings_match
         FROM search_profiles p WHERE p.archived_at IS {'NOT ' if archived else ''}NULL ORDER BY p.title''')]
     for row in rows:
         row['last_run']=last_run_for(con,row['id'])
@@ -244,6 +252,7 @@ def create_profile(body:ProfileBody,_=Depends(require_csrf),con=Depends(connecti
     provider='gaspedaal_site' if settings.data_source_approved else 'fixture'
     con.execute('INSERT INTO search_profiles(id,title,search_url,provider,created_at,updated_at) VALUES(?,?,?,?,?,?)',
                 (pid,body.title,url,provider,now(),now()))
+    insert_default_criteria(con,pid)
     return {'id':pid,'provider':provider,'source_status':'DIRECT_SEARCH_URL' if provider=='gaspedaal_site' else 'MANUAL_IMPORT'}
 
 @app.put('/api/v1/profiles/{profile_id}/source')
@@ -270,9 +279,20 @@ def import_snapshot(profile_id:str,snapshot:Snapshot,_=Depends(require_csrf),con
                 (snapshot.model_dump_json(),now(),profile_id))
     return {'imported':len(ids),'complete':snapshot.complete,'message':'Import opgeslagen. Start een controle om de prijzen vast te leggen.'}
 
+def wish_profile(con,profile_id):
+    """Wensen horen bij een zoekopdracht; zonder keuze alleen als er precies één is."""
+    if profile_id:
+        if not con.execute('SELECT 1 FROM search_profiles WHERE id=?',(profile_id,)).fetchone():
+            raise HTTPException(404,'Zoekopdracht niet gevonden')
+        return profile_id
+    rows=con.execute('SELECT id FROM search_profiles WHERE archived_at IS NULL').fetchall()
+    if len(rows)!=1:raise HTTPException(422,'Kies een zoekopdracht')
+    return rows[0][0]
+
 @app.get('/api/v1/criteria')
-def criteria(_=Depends(require_ui),con=Depends(connection)):
-    return {'items':get_criteria(con)}
+def criteria(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
+    pid=wish_profile(con,profile_id)
+    return {'profile_id':pid,'items':get_criteria(con,pid)}
 
 def clean_terms(values):
     out=[]
@@ -289,49 +309,81 @@ def slug(text):
     return re.sub(r'[^a-z0-9]+','_',ascii_text).strip('_')[:40] or 'wens'
 
 
+def profile_pairs(con,profile_id,only_active=False):
+    query='SELECT listing_id FROM profile_listings WHERE profile_id=?'+(" AND status='ACTIVE'" if only_active else '')
+    return [[profile_id,r[0]] for r in con.execute(query,(profile_id,))]
+
+
 @app.post('/api/v1/criteria',status_code=201)
 def create_criterion(body:CriterionCreate,_=Depends(require_csrf),con=Depends(connection)):
     if body.group_name not in ('MUST_HAVE','NICE_TO_HAVE'):raise HTTPException(422,'Ongeldige groep')
+    pid=wish_profile(con,body.profile_id)
     base=slug(body.label);key=base;n=2
-    while con.execute('SELECT 1 FROM criteria WHERE key=?',(key,)).fetchone():
+    while con.execute('SELECT 1 FROM criteria WHERE profile_id=? AND key=?',(pid,key)).fetchone():
         key=f'{base}_{n}';n+=1
-    con.execute('''INSERT INTO criteria(key,label,group_name,weight,description,synonyms_json,match_terms_json,enabled,
-                   updated_at) VALUES(?,?,?,?,?,?,?,1,?)''',
-                (key,body.label.strip(),body.group_name,body.weight,body.description.strip(),
+    con.execute('''INSERT INTO criteria(profile_id,key,label,group_name,weight,description,synonyms_json,match_terms_json,
+                   enabled,updated_at) VALUES(?,?,?,?,?,?,?,?,1,?)''',
+                (pid,key,body.label.strip(),body.group_name,body.weight,body.description.strip(),
                  dumps(clean_terms(body.synonyms)),dumps(clean_terms(body.match_terms)),now()))
     # New wish: recognise it locally right away; the next check asks the AI for the rest.
-    apply_local_claims(con,get_criteria(con),{key})
-    return {'key':key}
+    apply_local_claims(con,pid,get_criteria(con,pid),{key})
+    return {'key':key,'profile_id':pid}
 
 @app.delete('/api/v1/criteria/{key}')
-def delete_criterion(key:str,_=Depends(require_csrf),con=Depends(connection)):
+def delete_criterion(key:str,profile_id:str|None=None,_=Depends(require_csrf),con=Depends(connection)):
     """Soft delete: the wish is switched off, its claims (including your own corrections) are kept."""
-    cur=con.execute('UPDATE criteria SET enabled=0,updated_at=? WHERE key=? AND enabled=1',(now(),key))
+    pid=wish_profile(con,profile_id)
+    cur=con.execute('UPDATE criteria SET enabled=0,updated_at=? WHERE profile_id=? AND key=? AND enabled=1',(now(),pid,key))
     if not cur.rowcount:raise HTTPException(404,'Wens niet gevonden')
-    recalculate_all(con,get_criteria(con))
+    recalculate_all(con,pid,get_criteria(con,pid))
     return {'deleted':key}
 
 @app.put('/api/v1/criteria/{key}')
-def update_criterion(key:str,body:CriterionBody,_=Depends(require_csrf),con=Depends(connection)):
+def update_criterion(key:str,body:CriterionBody,profile_id:str|None=None,_=Depends(require_csrf),con=Depends(connection)):
     if body.group_name not in ('MUST_HAVE','NICE_TO_HAVE'):
         raise HTTPException(422,'Ongeldige groep')
-    old=con.execute('SELECT * FROM criteria WHERE key=?',(key,)).fetchone()
+    pid=wish_profile(con,profile_id)
+    old=con.execute('SELECT * FROM criteria WHERE profile_id=? AND key=?',(pid,key)).fetchone()
     if not old:raise HTTPException(404,'Wens niet gevonden')
     synonyms,terms=clean_terms(body.synonyms),clean_terms(body.match_terms)
     meaning_changed=(body.description.strip()!=old['description'] or synonyms!=json.loads(old['synonyms_json'])
                      or terms!=json.loads(old['match_terms_json'] or '[]'))
     con.execute('''UPDATE criteria SET label=?,group_name=?,weight=?,description=?,synonyms_json=?,match_terms_json=?,
-                   enabled=?,updated_at=? WHERE key=?''',
+                   enabled=?,updated_at=? WHERE profile_id=? AND key=?''',
                 (body.label.strip(),body.group_name,body.weight,body.description.strip(),dumps(synonyms),dumps(terms),
-                 int(body.enabled),now(),key))
-    criteria=get_criteria(con)
+                 int(body.enabled),now(),pid,key))
+    criteria=get_criteria(con,pid)
     if meaning_changed:
         # What counts as present changed: judge again (locally now, with AI at the next check).
-        con.execute('UPDATE listings SET analyzed_hash=NULL')
-        apply_local_claims(con,criteria,{key})
+        con.execute('UPDATE profile_listings SET analyzed_hash=NULL WHERE profile_id=?',(pid,))
+        apply_local_claims(con,pid,criteria,{key})
     # Weight, group or on/off only change the arithmetic: recalculate now, keep every assessment.
-    recalculate_all(con,criteria)
+    recalculate_all(con,pid,criteria)
     return {'updated':key,'reassess':meaning_changed}
+
+@app.post('/api/v1/criteria/copy')
+def copy_criteria(body:CopyCriteriaBody,_=Depends(require_csrf),con=Depends(connection)):
+    """Wensen van een andere zoekopdracht overnemen. Bestaande oordelen en eigen correcties blijven bewaard;
+    wensen die de bron niet heeft worden uitgezet. Daarna worden de auto's opnieuw beoordeeld."""
+    src,dst=wish_profile(con,body.from_profile_id),wish_profile(con,body.to_profile_id)
+    if src==dst:raise HTTPException(422,'Kies twee verschillende zoekopdrachten')
+    rows=con.execute('SELECT * FROM criteria WHERE profile_id=?',(src,)).fetchall()
+    for r in rows:
+        con.execute('''INSERT INTO criteria(profile_id,key,label,group_name,weight,description,synonyms_json,
+            match_terms_json,enabled,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(profile_id,key) DO UPDATE SET
+            label=excluded.label,group_name=excluded.group_name,weight=excluded.weight,description=excluded.description,
+            synonyms_json=excluded.synonyms_json,match_terms_json=excluded.match_terms_json,enabled=excluded.enabled,
+            updated_at=excluded.updated_at''',(dst,r['key'],r['label'],r['group_name'],r['weight'],r['description'],
+            r['synonyms_json'],r['match_terms_json'],r['enabled'],now()))
+    keys=[r['key'] for r in rows]
+    marks=','.join('?'*len(keys)) or "''"
+    con.execute(f'UPDATE criteria SET enabled=0,updated_at=? WHERE profile_id=? AND key NOT IN ({marks})',(now(),dst,*keys))
+    criteria=get_criteria(con,dst)
+    apply_local_claims(con,dst,criteria,{c['key'] for c in criteria})
+    recalculate_all(con,dst,criteria)
+    pairs=profile_pairs(con,dst)
+    run_id=enqueue_reanalysis(con,pairs) if pairs else None
+    return {'copied':len(rows),'run_id':run_id}
 
 @app.post('/api/v1/criteria/suggest')
 def suggest_criterion_terms(body:SuggestBody,_=Depends(require_csrf),con=Depends(connection)):
@@ -386,7 +438,7 @@ def enqueue_refresh(request:Request,body:RefreshBody,response:Response,
                 raise HTTPException(409,detail={'code':'IDEMPOTENCY_KEY_REUSED'})
             return {'run_id':prior['id'],'status':prior['state'],'already_accepted':True}
         active=con.execute('''SELECT * FROM refresh_runs WHERE state IN ('QUEUED','RUNNING')
-                                 AND scope_json NOT LIKE '%analyze_listing_ids%' LIMIT 1''').fetchone()
+                                 AND scope_json NOT LIKE '%"analyze%' LIMIT 1''').fetchone()
         if active:
             con.execute('INSERT INTO trigger_attempts VALUES(?,?,?,?,?,?)',
                         (attempt_id,source,active['id'],'REJECTED_OVERLAP',dumps({'scope':scope}),now()))
@@ -405,13 +457,19 @@ def enqueue_refresh(request:Request,body:RefreshBody,response:Response,
         con.execute('ROLLBACK')
         raise
 
-def enqueue_reanalysis(con,listing_ids):
-    """Herbeoordeling zonder controle: alleen de AI-/lokale beoordeling van deze auto's, niets ophalen."""
-    ids=sorted(set(listing_ids))
-    marks=','.join('?'*len(ids))
-    con.execute(f'UPDATE listings SET analyzed_hash=NULL WHERE id IN ({marks})',ids)
+def enqueue_reanalysis(con,items):
+    """Herbeoordeling zonder controle: alleen de beoordeling, niets ophalen.
+
+    `items` zijn auto-ID's (alle zoekopdrachten van die auto) of [zoekopdracht, auto]-paren.
+    """
+    pairs=[]
+    for item in items:
+        pairs+=[[pid,item] for pid in profiles_of(con,item)] if isinstance(item,str) else [list(item)]
+    pairs=sorted({tuple(p) for p in pairs})
+    for pid,lid in pairs:
+        con.execute('UPDATE profile_listings SET analyzed_hash=NULL WHERE profile_id=? AND listing_id=?',(pid,lid))
     run_id=uid('rr')
-    scope={'analyze_listing_ids':ids}
+    scope={'analyze':[list(p) for p in pairs]}
     con.execute('''INSERT INTO refresh_runs(id,trigger_source,state,scope_json,request_hash,created_at)
                    VALUES(?,?,?,?,?,?)''',(run_id,'REANALYSIS','QUEUED',dumps(scope),'reanalysis',now()))
     return run_id
@@ -426,17 +484,18 @@ def reanalyze_listing(listing_id:str,_=Depends(require_csrf),con=Depends(connect
 @app.post('/api/v1/integrations/process-queue',status_code=202)
 def process_queue(_=Depends(require_csrf),con=Depends(connection)):
     """Beoordeel auto's die nog wachten, binnen dezelfde AI-limiet per controle."""
-    ids=[r[0] for r in con.execute("SELECT id FROM listings WHERE analyzed_hash IS NULL AND availability='ACTIVE'")]
-    if not ids:raise HTTPException(409,'Er wacht geen auto op beoordeling')
-    run_id=enqueue_reanalysis(con,ids)
-    return {'run_id':run_id,'count':len(ids)}
+    pairs=[list(r) for r in con.execute("""SELECT profile_id,listing_id FROM profile_listings
+                                           WHERE analyzed_hash IS NULL AND status='ACTIVE'""")]
+    if not pairs:raise HTTPException(409,'Er wacht geen auto op beoordeling')
+    run_id=enqueue_reanalysis(con,pairs)
+    return {'run_id':run_id,'count':len({p[1] for p in pairs})}
 
 @app.get('/api/v1/integrations/summary')
 def integrations_summary(_=Depends(require_ui),con=Depends(connection)):
     month=now()[:7]
     row=con.execute('''SELECT
-        (SELECT COUNT(*) FROM listings WHERE analyzed_hash IS NOT NULL) AS assessed,
-        (SELECT COUNT(*) FROM listings WHERE analyzed_hash IS NULL AND availability='ACTIVE') AS waiting,
+        (SELECT COUNT(DISTINCT listing_id) FROM profile_listings WHERE analyzed_hash IS NOT NULL) AS assessed,
+        (SELECT COUNT(DISTINCT listing_id) FROM profile_listings WHERE analyzed_hash IS NULL AND status='ACTIVE') AS waiting,
         (SELECT COUNT(*) FROM integration_requests WHERE decision='ERROR' AND substr(created_at,1,7)=?) AS failed,
         (SELECT COALESCE(SUM(COALESCE(tokens_in,0)+COALESCE(tokens_out,0)),0) FROM integration_requests
            WHERE substr(created_at,1,7)=?) AS tokens_month''',(month,month)).fetchone()
@@ -496,28 +555,22 @@ def market(profile_id:str|None=None,days:int|None=None,_=Depends(require_ui),con
 
 
 LIST_COLUMNS = ('''l.id,l.external_id,l.title,l.url,l.year,l.kilometers,l.trim,l.seller,l.price_eur,l.first_seen,
-    l.last_seen,l.updated_at,l.availability,l.favorite,l.analyzed_hash,l.score_total,l.score_must,l.score_nice,
-    l.eligibility,l.score_potential,l.evidence_coverage,l.must_present,l.must_count,l.must_unknown,l.must_absent,
-    l.status_keys_json,l.photos_json,l.description_source,TRIM(l.description)!='' AS has_text''')
+    l.last_seen,l.updated_at,l.availability,l.favorite,l.photos_json,l.description_source,
+    TRIM(l.description)!='' AS has_text''')
 
 
 @app.get('/api/v1/listings')
 def listings(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
-    """List view without the ad text (B5): derived price and time fields, first photo only."""
-    # Within one search, the availability shown is that search's own status (e.g. outside its new filters).
-    params=[]
-    if profile_id:
-        query=f'''SELECT {LIST_COLUMNS},pl.status AS profile_status FROM listings l
-          JOIN profile_listings pl ON pl.listing_id=l.id AND pl.profile_id=?
-          ORDER BY (pl.status='ACTIVE') DESC''';params.append(profile_id)
-    else:
-        query=f"SELECT {LIST_COLUMNS} FROM listings l ORDER BY (l.availability='ACTIVE') DESC"
-    query+=',l.score_total DESC,l.price_eur ASC LIMIT 1000'
-    items=[dict(r) for r in con.execute(query,params)]
+    """List view without the ad text (B5): derived price and time fields, first photo only.
+
+    Scores follow the wishes of the chosen search; with all searches, those of the search the car was first seen in.
+    """
+    items=scored_listings(con,LIST_COLUMNS,profile_id)
+    items.sort(key=lambda i:(i['availability']!='ACTIVE',-(i['score_total'] or 0),i['price_eur']))
+    items=items[:1000]
     labels=criteria_labels(con)
     for item in items:
-        if 'profile_status' in item:item['availability']=item.pop('profile_status')
-        item['status_reason']=status_reason(item.pop('status_keys_json','{}'),labels)
+        item['status_reason']=status_reason(item.pop('status_keys_json','{}'),labels,item['score_profile_id'])
         item['photo']=first_photo(item.pop('photos_json'))
     extra=listing_insights(con,items,profile_id)
     market=market_positions(con,items)
@@ -530,20 +583,25 @@ def listings(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connecti
     return {'items':items}
 
 
-def criteria_labels(con):
-    return {r['key']:r['label'] for r in con.execute('SELECT key,label FROM criteria')}
-
-
-def status_reason(raw,labels):
+def status_reason(raw,labels,profile_id):
     """Which must-haves make the status what it is, as labels: {absent, unknown, conflict}."""
     keys=json.loads(raw or '{}')
-    return {k:[labels.get(x,x) for x in keys.get(k,[])] for k in ('absent','unknown','conflict')}
+    return {k:[labels.get((profile_id,x),x) for x in keys.get(k,[])] for k in ('absent','unknown','conflict')}
 
 @app.get('/api/v1/listings/{listing_id}')
-def listing_detail(listing_id:str,_=Depends(require_ui),con=Depends(connection)):
+def listing_detail(listing_id:str,profile_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
     row=con.execute('SELECT * FROM listings WHERE id=?',(listing_id,)).fetchone()
     if not row:raise HTTPException(404,'Auto niet gevonden')
     listing=dict(row)
+    # Wishes, claims and scores of one search: the requested one if the car is in it, else where it was first seen.
+    pid=context_profile(con,listing_id,profile_id)
+    titles={r[0]:r[1] for r in con.execute('SELECT id,title FROM search_profiles')}
+    listing['score_profile_id']=pid
+    listing['score_profile_title']=titles.get(pid)
+    listing['profiles']=[{'id':p,'title':titles.get(p)} for p in profiles_of(con,listing_id)]
+    score=con.execute(f'''SELECT {",".join(PL_SCORES)} FROM profile_listings WHERE profile_id=? AND listing_id=?''',
+                      (pid,listing_id)).fetchone()
+    listing.update(dict(score) if score else {})
     listing['sources']=[dict(r) for r in con.execute('''SELECT * FROM listing_sources WHERE listing_id=? ORDER BY site''',(listing_id,))]
     for source in listing['sources']:
         source['history']=[dict(r) for r in con.execute('''SELECT observed_at,price_eur,run_id FROM source_price_observations WHERE listing_id=? AND portal_id=? ORDER BY observed_at''',(listing_id,source['portal_id']))]
@@ -554,21 +612,22 @@ def listing_detail(listing_id:str,_=Depends(require_ui),con=Depends(connection))
     listing['claims']=[dict(r) for r in con.execute('''SELECT cr.key AS criterion_key,cr.label,cr.group_name,cr.weight,
         COALESCE(c.status,'UNKNOWN') AS status,c.evidence,c.reason,COALESCE(c.confidence,0) AS confidence,
         c.source,c.updated_at,c.integration_id,c.listing_id IS NULL AS not_assessed
-        FROM criteria cr LEFT JOIN claims c ON c.criterion_key=cr.key AND c.listing_id=?
-        WHERE cr.enabled=1 ORDER BY cr.group_name,cr.weight DESC,cr.label''',(listing_id,))]
-    listing['status_reason']=status_reason(listing.pop('status_keys_json','{}'),criteria_labels(con))
+        FROM criteria cr LEFT JOIN claims c ON c.criterion_key=cr.key AND c.profile_id=cr.profile_id AND c.listing_id=?
+        WHERE cr.profile_id=? AND cr.enabled=1 ORDER BY cr.group_name,cr.weight DESC,cr.label''',(listing_id,pid))]
+    listing['status_reason']=status_reason(listing.pop('status_keys_json','{}'),criteria_labels(con),pid)
     listing['notes']=[dict(r) for r in con.execute('SELECT * FROM negotiation_notes WHERE listing_id=? ORDER BY created_at DESC',(listing_id,))]
     listing.update(listing_insights(con,[listing]).get(listing_id,{}))
     # Exactly the text that is assessed (minimised, personal data removed).
-    listing['assessed_text']=cleaned_text(listing['title'],listing['description'],get_criteria(con))
+    listing['assessed_text']=cleaned_text(listing['title'],listing['description'],get_criteria(con,pid) if pid else [])
     return listing
 
 @app.get('/api/v1/listings/{listing_id}/valuation')
-def listing_valuation(listing_id:str,_=Depends(require_ui),con=Depends(connection)):
+def listing_valuation(listing_id:str,profile_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
     """Market band from comparable asking prices, three amounts and the arguments. Never a selling price."""
     if not con.execute('SELECT 1 FROM listings WHERE id=?',(listing_id,)).fetchone():
         raise HTTPException(404,'Auto niet gevonden')
-    return valuation_for(con,listing_id,get_criteria(con))
+    pid=context_profile(con,listing_id,profile_id)
+    return valuation_for(con,listing_id,get_criteria(con,pid) if pid else [],pid)
 
 @app.put('/api/v1/listings/{listing_id}/negotiation')
 def set_negotiation(listing_id:str,body:NegotiationBody,_=Depends(require_csrf),con=Depends(connection)):
@@ -589,13 +648,16 @@ def toggle_favorite(listing_id:str,_=Depends(require_csrf),con=Depends(connectio
 def manual_review(listing_id:str,body:ReviewBody,_=Depends(require_csrf),con=Depends(connection)):
     if body.status not in ('PRESENT','ABSENT','UNKNOWN','CONFLICT'):raise HTTPException(422,'Ongeldige status')
     if not con.execute('SELECT 1 FROM listings WHERE id=?',(listing_id,)).fetchone():raise HTTPException(404,'Auto onbekend')
-    if not con.execute('SELECT 1 FROM criteria WHERE key=?',(body.criterion_key,)).fetchone():raise HTTPException(404,'Wens onbekend')
-    con.execute('''INSERT INTO claims(listing_id,criterion_key,status,evidence,reason,confidence,source,updated_at)
-       VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(listing_id,criterion_key) DO UPDATE SET status=excluded.status,
-       evidence=excluded.evidence,reason=excluded.reason,confidence=excluded.confidence,source=excluded.source,updated_at=excluded.updated_at''',
-       (listing_id,body.criterion_key,body.status,body.evidence,body.reason,1,'MANUAL_OVERRIDE',now()))
-    score=recalculate_score(con,listing_id,get_criteria(con))
-    return {'updated':True,'score':score}
+    pid=context_profile(con,listing_id,body.profile_id)
+    if not pid or not con.execute('SELECT 1 FROM criteria WHERE profile_id=? AND key=?',(pid,body.criterion_key)).fetchone():
+        raise HTTPException(404,'Wens onbekend')
+    con.execute('''INSERT INTO claims(profile_id,listing_id,criterion_key,status,evidence,reason,confidence,source,updated_at,
+       integration_id) VALUES(?,?,?,?,?,?,?,?,?,NULL) ON CONFLICT(profile_id,listing_id,criterion_key) DO UPDATE SET
+       status=excluded.status,evidence=excluded.evidence,reason=excluded.reason,confidence=excluded.confidence,
+       source=excluded.source,updated_at=excluded.updated_at,integration_id=NULL''',
+       (pid,listing_id,body.criterion_key,body.status,body.evidence,body.reason,1,'MANUAL_OVERRIDE',now()))
+    score=recalculate_score(con,pid,listing_id,get_criteria(con,pid))
+    return {'updated':True,'score':score,'profile_id':pid}
 
 @app.post('/api/v1/listings/{listing_id}/description')
 def set_description(listing_id:str,body:DescriptionBody,_=Depends(require_csrf),con=Depends(connection)):
@@ -603,22 +665,24 @@ def set_description(listing_id:str,body:DescriptionBody,_=Depends(require_csrf),
     row=con.execute('SELECT title FROM listings WHERE id=?',(listing_id,)).fetchone()
     if not row:raise HTTPException(404,'Auto onbekend')
     text=body.text.strip()
-    digest=text_hash(cleaned_text(row['title'],text,get_criteria(con)))
-    con.execute('''UPDATE listings SET description=?,description_source=?,text_hash=?,analyzed_hash=NULL,updated_at=?
+    digest=text_hash(cleaned_text(row['title'],text))
+    con.execute('''UPDATE listings SET description=?,description_source=?,text_hash=?,updated_at=?
                    WHERE id=?''',(text,'MANUAL' if text else None,digest,now(),listing_id))
     run_id=enqueue_reanalysis(con,[listing_id])
     return {'updated':True,'description_source':'MANUAL' if text else None,'run_id':run_id}
 
 @app.delete('/api/v1/listings/{listing_id}/review/{criterion_key}')
-def undo_review(listing_id:str,criterion_key:str,_=Depends(require_csrf),con=Depends(connection)):
-    """Remove your own judgement: the wish is recognised locally again now and by AI at the next check."""
-    cur=con.execute("DELETE FROM claims WHERE listing_id=? AND criterion_key=? AND source='MANUAL_OVERRIDE'",
-                    (listing_id,criterion_key))
+def undo_review(listing_id:str,criterion_key:str,profile_id:str|None=None,_=Depends(require_csrf),
+                con=Depends(connection)):
+    """Remove your own judgement: the wish is recognised locally again now and reassessed right away."""
+    pid=context_profile(con,listing_id,profile_id)
+    cur=con.execute("DELETE FROM claims WHERE profile_id=? AND listing_id=? AND criterion_key=? AND source='MANUAL_OVERRIDE'",
+                    (pid,listing_id,criterion_key))
     if not cur.rowcount:raise HTTPException(404,'Geen eigen oordeel gevonden')
-    criteria=get_criteria(con)
-    apply_local_claims(con,criteria,{criterion_key},{listing_id})
-    score=recalculate_score(con,listing_id,criteria)
-    run_id=enqueue_reanalysis(con,[listing_id])
+    criteria=get_criteria(con,pid)
+    apply_local_claims(con,pid,criteria,{criterion_key},{listing_id})
+    score=recalculate_score(con,pid,listing_id,criteria)
+    run_id=enqueue_reanalysis(con,[[pid,listing_id]])
     return {'updated':True,'score':score,'run_id':run_id}
 
 @app.post('/api/v1/listings/{listing_id}/notes')
@@ -647,7 +711,7 @@ def integration_detail(integration_id:str,_=Depends(require_ui),con=Depends(conn
     # Readable verdicts from this assessment (also for local recognition without an AI call).
     result['claims']=[dict(r) for r in con.execute('''SELECT c.criterion_key,cr.label,cr.group_name,c.status,c.evidence,
         c.reason,c.confidence,c.source FROM claims c JOIN criteria cr ON cr.key=c.criterion_key
-        WHERE c.integration_id=? ORDER BY cr.group_name,cr.weight DESC''',(integration_id,))]
+        AND cr.profile_id=c.profile_id WHERE c.integration_id=? ORDER BY cr.group_name,cr.weight DESC''',(integration_id,))]
     return result
 
 @app.get('/api/v1/export/observations.csv')

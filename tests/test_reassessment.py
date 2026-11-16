@@ -27,7 +27,7 @@ def test_migration_sets_claim_source_from_reason():
                         (key, key))
         con.execute('INSERT INTO claims(listing_id,criterion_key,status,reason,source,updated_at) VALUES(?,?,?,?,?,?)',
                     ('l', key, status, reason, source, 'x'))
-    migrate(con, backup=False)
+    migrate(con, [m for m in MIGRATIONS if m[0] <= 9], backup=False)
     sources = dict(con.execute('SELECT criterion_key,source FROM claims').fetchall())
     assert sources == {'towbar': 'LOCAL_RULE', 'a': 'NOT_MENTIONED', 'b': 'GEMINI', 'c': 'MANUAL_OVERRIDE'}
     assert 'integration_id' in {r[1] for r in con.execute('PRAGMA table_info(claims)')}

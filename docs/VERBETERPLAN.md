@@ -127,7 +127,7 @@ Werk van boven naar beneden. Werk deze tabel bij na elk WP (`☐` → `☑`, met
 | 10 | Marktwaarde en onderhandelingspositie | F9 F10 | **Opus** | ☑ 17-11-2026 · 0.14.0 |
 | 11 | Marktoverzicht dat de zeven vragen beantwoordt | F11 F12 B6 U7 | **Opus** (rekenwerk), Sonnet (UI) | ☑ 17-11-2026 · 0.15.0 |
 | 12 | Inzicht in de AI-beoordeling | F16 | Sonnet | ☑ 17-11-2026 · 0.16.0 |
-| 13 | Wensen per zoekopdracht | F13 | **Opus** | ☐ |
+| 13 | Wensen per zoekopdracht | F13 | **Opus** | ☑ 17-11-2026 · 0.17.0 |
 | 14 | Optioneel, eerst bevestigen: meldingen via Home Assistant, shortlist vergelijken, dossier | F17, doel §9 | Sonnet | ☐ |
 
 Na WP-08 is de app in dagelijks gebruik merkbaar beter; WP-10 en WP-11 leveren de kern van het doel (marktinzicht en onderhandelen).
@@ -473,6 +473,7 @@ Run-ID's en andere technische ID's staan alleen nog op de beheerschermen, nooit 
 2. De scorevelden (`score_total`, `score_must`, `score_nice`, `score_potential`, `evidence_coverage`, `must_*`, `eligibility`) en `analyzed_hash` verhuizen van `listings` naar `profile_listings`, want één auto kan in twee zoekopdrachten vallen.
 3. Alle API's die scores of wensen teruggeven vereisen dan een zoekopdracht; bij "Alle zoekopdrachten" toont de lijst per auto de score van de zoekopdracht waarin die het eerst werd gezien, met de naam erbij.
 4. Mijn wensen krijgt bovenaan de zoekopdrachtkeuze en een knop "Wensen kopiëren van …".
+   > **Uitvoering:** een nieuwe zoekopdracht begint met de standaardwensen. "Wensen kopiëren van …" neemt de wensen van de bron over, zet wensen uit die de bron niet heeft (oordelen en eigen correcties blijven bewaard) en start een herbeoordeling. Een eigen correctie geldt voor de zoekopdracht waarin hij is gemaakt.
 
 **Klaar als.** Tests: twee zoekopdrachten met verschillende wensen geven voor dezelfde auto verschillende scores; migratie behoudt alle handmatige correcties. Back-up van de database is gemaakt vóór de migratie.
 

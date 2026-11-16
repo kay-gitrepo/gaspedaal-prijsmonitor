@@ -2,7 +2,7 @@
 from app.insights import listing_insights
 from app.valuation import market_position, valuation
 
-CAR_COLUMNS = ('id,title,price_eur,year,kilometers,trim,score_total,first_seen,last_seen,availability,'
+CAR_COLUMNS = ('id,title,price_eur,year,kilometers,trim,first_seen,last_seen,availability,'
                'my_opening,my_target,my_max')
 
 
@@ -39,10 +39,23 @@ def budget_for(con, listing_id):
     return row[0] if row else None
 
 
-def valuation_for(con, listing_id, criteria):
+def _scores(con, ids, profile_id):
+    """Matchscore per auto volgens de wensen van de zoekopdracht; anders de hoogste score van de auto."""
+    out = {}
+    for lid, pid, score in con.execute('SELECT listing_id,profile_id,score_total FROM profile_listings'):
+        if lid in ids and (pid == profile_id or lid not in out):
+            out[lid] = score
+    return out
+
+
+def valuation_for(con, listing_id, criteria, profile_id=None):
+    """Waardering volgens de wensen van één zoekopdracht (match, uitrusting en optiepremie)."""
     profiles_of, active_in = memberships(con)
     ids = pool_ids(listing_id, profiles_of, active_in)
     rows = _rows(con, ids | {listing_id})
+    scores = _scores(con, ids | {listing_id}, profile_id)
+    for lid, row in rows.items():
+        row['score_total'] = scores.get(lid)
     car = rows.pop(listing_id)
     extra = listing_insights(con, [car] + list(rows.values()))
     car.update(extra.get(listing_id, {}))
@@ -51,7 +64,8 @@ def valuation_for(con, listing_id, criteria):
     if rows:
         marks = ','.join('?' * len(rows))
         for lid, key, status in con.execute(f'''SELECT listing_id,criterion_key,status FROM claims
-                                                WHERE listing_id IN ({marks})''', list(rows)):
+                                                WHERE profile_id=? AND listing_id IN ({marks})''',
+                                             [profile_id, *rows]):
             claims.setdefault(lid, {})[key] = status
     for lid, row in rows.items():
         row.update(extra.get(lid, {}))
@@ -63,8 +77,8 @@ def valuation_for(con, listing_id, criteria):
                               ORDER BY created_at,id''', (listing_id,))]
     own = {'opening': car.pop('my_opening'), 'target': car.pop('my_target'), 'limit': car.pop('my_max')}
     car_claims = [dict(r) for r in con.execute('''SELECT cr.label,COALESCE(c.status,'UNKNOWN') AS status
-        FROM criteria cr LEFT JOIN claims c ON c.criterion_key=cr.key AND c.listing_id=?
-        WHERE cr.enabled=1 ORDER BY cr.group_name,cr.weight DESC''', (listing_id,))]
+        FROM criteria cr LEFT JOIN claims c ON c.criterion_key=cr.key AND c.profile_id=cr.profile_id AND c.listing_id=?
+        WHERE cr.profile_id=? AND cr.enabled=1 ORDER BY cr.group_name,cr.weight DESC''', (listing_id, profile_id))]
     sources = [dict(r) for r in con.execute('SELECT site,price_eur FROM listing_sources WHERE listing_id=?',
                                             (listing_id,))]
     return valuation(car, pool, budget=budget_for(con, listing_id), own=own, claims=car_claims, sources=sources,

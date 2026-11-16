@@ -338,6 +338,77 @@ def _m9_claim_provenance(con):
 _m9_claim_provenance.changes_data = True
 
 
+PROFILE_SCORE_COLUMNS = SCORE_COLUMNS + ('analyzed_hash',)
+
+
+def _m10_wishes_per_profile(con):
+    """Wensen per zoekopdracht (WP-13).
+
+    - criteria krijgt sleutel (profile_id, key); claims krijgt profile_id in de sleutel. Elke bestaande zoekopdracht
+      krijgt een kopie van de huidige wensen en van de oordelen over de auto's in die zoekopdracht (ook eigen correcties).
+    - Scorevelden en analyzed_hash verhuizen van listings naar profile_listings: één auto kan in twee zoekopdrachten
+      vallen met verschillende wensen.
+    """
+    profiles = [r[0] for r in con.execute('SELECT id FROM search_profiles')]
+    con.execute('''CREATE TABLE criteria_new (
+        profile_id TEXT NOT NULL REFERENCES search_profiles(id) ON DELETE CASCADE, key TEXT NOT NULL,
+        label TEXT NOT NULL, group_name TEXT NOT NULL CHECK(group_name IN ('MUST_HAVE','NICE_TO_HAVE')),
+        weight INTEGER NOT NULL CHECK(weight BETWEEN 1 AND 5), description TEXT NOT NULL DEFAULT '',
+        synonyms_json TEXT NOT NULL DEFAULT '[]', match_terms_json TEXT NOT NULL DEFAULT '[]',
+        enabled INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, PRIMARY KEY(profile_id, key))''')
+    for pid in profiles:
+        con.execute('''INSERT INTO criteria_new(profile_id,key,label,group_name,weight,description,synonyms_json,
+                       match_terms_json,enabled,updated_at) SELECT ?,key,label,group_name,weight,description,
+                       synonyms_json,match_terms_json,enabled,updated_at FROM criteria''', (pid,))
+    con.execute('''CREATE TABLE claims_new (
+        profile_id TEXT NOT NULL, listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+        criterion_key TEXT NOT NULL, status TEXT NOT NULL, evidence TEXT, reason TEXT,
+        confidence REAL NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'AD_TEXT', updated_at TEXT NOT NULL,
+        integration_id TEXT, PRIMARY KEY(profile_id, listing_id, criterion_key),
+        FOREIGN KEY(profile_id, criterion_key) REFERENCES criteria(profile_id, key) ON DELETE CASCADE)''')
+    columns = 'listing_id,criterion_key,status,evidence,reason,confidence,source,updated_at,integration_id'
+    con.execute(f'''INSERT INTO claims_new(profile_id,{columns}) SELECT pl.profile_id,{",".join("c." + x for x in
+                columns.split(","))} FROM claims c JOIN profile_listings pl ON pl.listing_id=c.listing_id''')
+    # Oordelen over auto's zonder zoekopdracht gaan niet verloren: die krijgt elke zoekopdracht.
+    for pid in profiles:
+        con.execute(f'''INSERT OR IGNORE INTO claims_new(profile_id,{columns}) SELECT ?,{columns} FROM claims c
+                        WHERE NOT EXISTS (SELECT 1 FROM profile_listings pl WHERE pl.listing_id=c.listing_id)''', (pid,))
+    con.execute('DROP TABLE claims')
+    con.execute('DROP TABLE criteria')
+    con.execute('ALTER TABLE criteria_new RENAME TO criteria')
+    con.execute('ALTER TABLE claims_new RENAME TO claims')
+    con.execute('CREATE INDEX IF NOT EXISTS idx_claims_listing ON claims(listing_id)')
+    for name, definition in [('score_total', 'REAL NOT NULL DEFAULT 0'), ('score_must', 'REAL NOT NULL DEFAULT 0'),
+                             ('score_nice', 'REAL NOT NULL DEFAULT 0'),
+                             ('eligibility', "TEXT NOT NULL DEFAULT 'UNVERIFIED'"),
+                             ('score_potential', 'REAL NOT NULL DEFAULT 0'), ('evidence_coverage', 'REAL NOT NULL DEFAULT 0'),
+                             ('must_present', 'INTEGER NOT NULL DEFAULT 0'), ('must_count', 'INTEGER NOT NULL DEFAULT 0'),
+                             ('must_unknown', 'INTEGER NOT NULL DEFAULT 0'), ('must_absent', 'INTEGER NOT NULL DEFAULT 0'),
+                             ('status_keys_json', "TEXT NOT NULL DEFAULT '{}'"), ('analyzed_hash', 'TEXT')]:
+        add_column(con, 'profile_listings', name, definition)
+    assignments = ','.join(f'{c}=(SELECT l.{c} FROM listings l WHERE l.id=profile_listings.listing_id)'
+                           for c in PROFILE_SCORE_COLUMNS)
+    con.execute(f'UPDATE profile_listings SET {assignments}')
+    for c in PROFILE_SCORE_COLUMNS:
+        if c in columns_of(con, 'listings'):
+            con.execute(f'ALTER TABLE listings DROP COLUMN {c}')
+    add_column(con, 'integration_requests', 'profile_id', 'TEXT')
+    con.execute('''UPDATE integration_requests SET profile_id=(SELECT MIN(pl.profile_id) FROM profile_listings pl
+                   WHERE pl.listing_id=integration_requests.listing_id)
+                   WHERE (SELECT COUNT(*) FROM profile_listings pl WHERE pl.listing_id=integration_requests.listing_id)=1''')
+    broken = con.execute('PRAGMA foreign_key_check').fetchall()
+    if broken:
+        raise RuntimeError(f'Migratie 10: {len(broken)} verwijzingen kloppen niet; niets gewijzigd')
+
+
+def columns_of(con, table):
+    return columns(con, table)
+
+
+_m10_wishes_per_profile.changes_data = True
+_m10_wishes_per_profile.foreign_keys_off = True
+
+
 # (versie, functie). Functies met attribuut `changes_data = True` wijzigen bestaande rijen;
 # vóór de eerste daarvan wordt een back-up van het databasebestand gemaakt.
 MIGRATIONS = [
@@ -350,6 +421,7 @@ MIGRATIONS = [
     (7, _m7_score_uncertainty),
     (8, _m8_own_amounts),
     (9, _m9_claim_provenance),
+    (10, _m10_wishes_per_profile),
 ]
 
 
@@ -401,11 +473,12 @@ def migrate(con, migrations=None, backup=True):
     return applied
 
 
-def insert_default_criteria(con):
+def insert_default_criteria(con, profile_id):
+    """Standaardwensen voor een nieuwe zoekopdracht (aan te passen of te kopiëren van een andere)."""
     for key, label, group, weight, description, synonyms in DEFAULT_CRITERIA:
-        con.execute('''INSERT INTO criteria(key,label,group_name,weight,description,synonyms_json,enabled,
-                       updated_at,match_terms_json) VALUES (?,?,?,?,?,?,?,?,?)''',
-                    (key, label, group, weight, description, dumps(synonyms), 1, now(),
+        con.execute('''INSERT OR IGNORE INTO criteria(profile_id,key,label,group_name,weight,description,synonyms_json,
+                       enabled,updated_at,match_terms_json) VALUES (?,?,?,?,?,?,?,?,?,?)''',
+                    (profile_id, key, label, group, weight, description, dumps(synonyms), 1, now(),
                      dumps(DEFAULT_MATCH_TERMS.get(key, []))))
 
 
@@ -414,8 +487,6 @@ def init_db():
     try:
         con.executescript(SCHEMA)
         migrate(con)
-        if not con.execute('SELECT 1 FROM criteria LIMIT 1').fetchone():
-            insert_default_criteria(con)
     finally:
         con.close()
 

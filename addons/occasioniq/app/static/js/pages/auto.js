@@ -10,6 +10,9 @@ import {lastListHash} from '../router.js';
 import {inView, priceChange} from './aanbod.js';
 import {negotiationHtml, negotiationSubmits} from '../negotiation.js';
 import {follow} from '../refresh.js';
+import {profileId} from '../context.js';
+
+let wantedProfile = '';
 
 export function skeleton() {
   return '<div class="skeleton sk-title"></div><div class="skeleton sk-text"></div>'
@@ -193,7 +196,8 @@ function page(x, v) {
       {sub: `${fmt(x.observations)} metingen sinds ${datum(x.first_seen)}`})}
       ${card('Prijswijzigingen', changesTable(x))}${card('Prijzen per aanbieder', providersTable(x))}</section>
     <section id="uitrusting" class="car-section">${textCard(x)}
-      ${card('Uitrusting', equipmentHtml(x.id, claims, {assessedText: x.assessed_text}), {sub: `${fmt(x.score_total)}% bevestigd · tot `
+      ${card('Uitrusting', wishContext(x) + equipmentHtml(x.id, claims, {assessedText: x.assessed_text,
+        profileId: x.score_profile_id}), {sub: `${fmt(x.score_total)}% bevestigd · tot `
         + `${fmt(x.score_potential)}% mogelijk · bewijs voor ${fmt(x.evidence_coverage)}% van het gewicht`})}
       ${card('Vragen aan de verkoper', questionsHtml(x, claims), {id: 'vragen',
         sub: openQuestions(claims).length ? 'Eén vraag per onzekere wens, must-haves eerst' : ''})}</section>
@@ -203,10 +207,22 @@ function page(x, v) {
 
 function load(id) {
   const path = '/listings/' + encodeURIComponent(id);
-  return Promise.all([api(path), api(path + '/valuation')]);
+  const q = wantedProfile ? `?profile_id=${encodeURIComponent(wantedProfile)}` : '';
+  return Promise.all([api(path + q), api(path + '/valuation' + q)]);
+}
+
+/** Bij een auto in meer zoekopdrachten: welke wensen gelden er, en wisselen. */
+function wishContext(x) {
+  if (!x.score_profile_title) return '';
+  const others = (x.profiles || []).filter(p => p.id !== x.score_profile_id);
+  const links = others.map(p => `<a href="#/auto/${encodeURIComponent(x.id)}?zoekopdracht=${encodeURIComponent(p.id)}">
+    ${esc(p.title)}</a>`).join(' · ');
+  return `<p class="muted small wish-context">Beoordeeld volgens de wensen van <strong>${esc(x.score_profile_title)}</strong>
+    ${links ? ` · ook in: ${links}` : ''}</p>`;
 }
 
 export async function render(params, id) {
+  wantedProfile = params?.get('zoekopdracht') || profileId() || '';
   const [x, v] = await load(id);
   document.title = `${x.title} · OccasionIQ`;
   $('#content').innerHTML = page(x, v);

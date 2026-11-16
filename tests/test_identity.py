@@ -124,7 +124,7 @@ def test_switching_provider_keeps_the_same_vehicle(monkeypatch):
             add_run(con, rid, '2026-01-05T07:00:00+00:00')
             monkeypatch.setattr(worker, 'provider_for', lambda p, s=source: FakeProvider(s, [ad]))
             profile = con.execute('SELECT * FROM search_profiles WHERE id=?', (pid,)).fetchone()
-            worker.scan_profile(con, rid, profile, worker.get_criteria(con))
+            worker.scan_profile(con, rid, profile)
         rows = con.execute('''SELECT l.external_id FROM listings l JOIN profile_listings p ON p.listing_id=l.id
                               WHERE p.profile_id=?''', (pid,)).fetchall()
         assert [r[0] for r in rows] == ['gaspedaal:switch-1']

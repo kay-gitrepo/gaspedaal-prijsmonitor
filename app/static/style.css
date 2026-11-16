@@ -725,3 +725,8 @@ td.cell-main { min-width: 230px; }
 .facts dd.small { font-size: var(--fs-12); font-weight: 400; }
 .reassess { margin-top: var(--s3); }
 .json.assessed { max-height: 280px; }
+
+/* Wensen per zoekopdracht (WP-13) */
+.wish-profile { display: flex; align-items: flex-end; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s4); }
+.wish-profile .field { flex: 0 1 360px; }
+.wish-context { margin-bottom: var(--s3); }
