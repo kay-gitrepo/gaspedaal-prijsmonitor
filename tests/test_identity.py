@@ -121,7 +121,7 @@ def test_switching_provider_keeps_the_same_vehicle(monkeypatch):
         for source, provider in [('GASPEDAAL_SEARCH_URL', 'gaspedaal_site'), ('GASPEDAAL_DIRECT_API', 'gaspedaal')]:
             con.execute('UPDATE search_profiles SET provider=? WHERE id=?', (provider, pid))
             rid = uid('rr')
-            add_run(con, rid, 'x')
+            add_run(con, rid, '2026-01-05T07:00:00+00:00')
             monkeypatch.setattr(worker, 'provider_for', lambda p, s=source: FakeProvider(s, [ad]))
             profile = con.execute('SELECT * FROM search_profiles WHERE id=?', (pid,)).fetchone()
             worker.scan_profile(con, rid, profile, worker.get_criteria(con))

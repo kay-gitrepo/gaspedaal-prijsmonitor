@@ -4,6 +4,7 @@ import {PAGES, parseHash, replace, setLastList} from './router.js';
 import {$, $$, closeDialogView, dialogOpen, errorState, skeletons, toast} from './ui.js';
 import {startRefresh, onRefreshFinished} from './refresh.js';
 import {onProfileChange, refreshProfiles, selectProfile} from './context.js';
+import {refreshStatus} from './freshness.js';
 import * as overzicht from './pages/overzicht.js';
 import * as aanbod from './pages/aanbod.js';
 import * as auto from './pages/auto.js';
@@ -15,7 +16,7 @@ import * as instellingen from './pages/instellingen.js';
 
 const BASE = {overzicht, aanbod, auto, wensen, zoekopdrachten, controles, 'ai-analyse': aiAnalyse, instellingen};
 /* Detailvensters op beheerschermen; de auto heeft een eigen pagina. */
-const DETAIL = {controles: controles.showRun, 'ai-analyse': aiAnalyse.showIntegration};
+const DETAIL = {'ai-analyse': aiAnalyse.showIntegration};
 const TITLES = {
   overzicht: 'Overzicht', aanbod: 'Aanbod', auto: 'Auto', wensen: 'Mijn wensen', zoekopdrachten: 'Zoekopdrachten',
   controles: 'Controles', 'ai-analyse': 'AI-beoordeling', instellingen: 'Instellingen',
@@ -112,7 +113,7 @@ function closeMenu() {
 async function showApp() {
   $('#login').classList.add('hidden');
   $('#shell').classList.remove('hidden');
-  await refreshProfiles();
+  await Promise.all([refreshProfiles(), refreshStatus()]);
   await route();
 }
 
@@ -230,13 +231,14 @@ window.addEventListener('scroll', () => {
   scrollTimer = setTimeout(() => scrollMemory.set(location.hash, window.scrollY), 80);
 }, {passive: true});
 onRefreshFinished(async () => {
-  await refreshProfiles();
+  await Promise.all([refreshProfiles(), refreshStatus()]);
   if (renderedBase && !dialogOpen()) await renderBase(renderedBase);
 });
 onProfileChange(() => {
   if (renderedBase && !dialogOpen()) renderBase(renderedBase);
 });
 $('#profile-select').addEventListener('change', e => selectProfile(e.target.value));
+window.addEventListener('occasioniq:run-started', () => refreshStatus());
 
 initialize().catch(e => {
   $('#login').classList.remove('hidden');

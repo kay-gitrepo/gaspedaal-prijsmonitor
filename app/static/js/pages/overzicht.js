@@ -5,6 +5,7 @@ import {RUN_STATE, TRIGGER, label} from '../labels.js';
 import {eligibilityBadge, matchCell} from '../status.js';
 import {$, button, card, icon, notice, pageHead, skeletons, stat, statusBadge, table} from '../ui.js';
 import {allProfiles, profileQuery} from '../context.js';
+import {failureNotice} from '../freshness.js';
 
 export function skeleton() {
   return skeletons.head() + skeletons.stats() + skeletons.block() + skeletons.rows(4);
@@ -80,7 +81,7 @@ export async function render() {
   const columns = [{label: 'Auto', main: true}, {label: 'Vraagprijs', num: true}, {label: 'Km', num: true},
     {label: 'Match'}, {label: 'Status'}];
   $('#content').innerHTML = pageHead('Overzicht', 'Vraagprijzen, aanbod en je beste kandidaten in één oogopslag.',
-    button('Naar het aanbod', {href: '#/aanbod', icon: 'car'})) + `
+    button('Naar het aanbod', {href: '#/aanbod', icon: 'car'})) + failureNotice() + `
     <div class="stats">
       ${stat('Te koop', fmt(d.active_listings), 'auto\'s in deze zoekopdracht', 'car')}
       ${stat('Mediane vraagprijs', euro(d.median_asking), 'vraagprijs, geen verkoopprijs', 'euro')}

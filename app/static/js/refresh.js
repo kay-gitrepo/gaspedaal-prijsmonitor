@@ -68,6 +68,7 @@ export async function startRefresh(scope = 'all', buttonEl = null) {
   try {
     const result = await api('/refresh-runs', {method: 'POST', body: {scope, reason: 'manual_ui'}});
     toast('Controle gestart.', 'info');
+    window.dispatchEvent(new CustomEvent('occasioniq:run-started'));
     return await follow(result.run_id);
   } catch (e) {
     if (e.status === 409 && e.detail?.active_run_id) {

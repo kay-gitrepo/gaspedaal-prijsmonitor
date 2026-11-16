@@ -26,8 +26,8 @@ export function statusChip(x) {
     return badge(r.absent?.length ? `Valt af: ${list(r.absent)} ontbreekt` : 'Valt af', 'danger');
   }
   if (!hasText(x) && x.eligibility !== 'MATCH') return badge('Geen advertentietekst', 'neutral');
-  if (!x.analyzed_hash && x.analyzed_hash !== undefined) return badge('Nog niet beoordeeld', 'neutral');
   if (x.eligibility === 'MATCH') return badge('Voldoet', 'success');
+  if (!x.analyzed_hash && x.analyzed_hash !== undefined) return badge('Nog niet beoordeeld', 'neutral');
   if (x.eligibility === 'REVIEW') {
     return badge(r.conflict?.length ? `Tegenstrijdig: ${list(r.conflict)}` : 'Tegenstrijdig', 'warning');
   }

@@ -21,6 +21,19 @@ export function datum(s) {
   return new Date(s).toLocaleDateString('nl-NL', {timeZone: TZ, day: 'numeric', month: 'short', year: 'numeric'});
 }
 
+/** "vandaag 08:00", "gisteren 08:00" of "14 nov 08:00". */
+export function wanneer(s) {
+  if (!s) return '—';
+  const d = new Date(s);
+  const time = d.toLocaleTimeString('nl-NL', {timeZone: TZ, hour: '2-digit', minute: '2-digit'});
+  const key = x => x.toLocaleDateString('nl-NL', {timeZone: TZ});
+  const today = new Date();
+  const yesterday = new Date(today.getTime() - 86400000);
+  if (key(d) === key(today)) return `vandaag ${time}`;
+  if (key(d) === key(yesterday)) return `gisteren ${time}`;
+  return `${d.toLocaleDateString('nl-NL', {timeZone: TZ, day: 'numeric', month: 'short'})} ${time}`;
+}
+
 const ESCAPES = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
 
 export function esc(x) {

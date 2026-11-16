@@ -661,3 +661,16 @@ td.cell-main { min-width: 230px; }
   .car-section { scroll-margin-top: 72px; }
   .gallery-empty { min-height: 120px; }
 }
+
+/* Controles (WP-09) */
+.freshness { text-decoration: none; min-height: 32px; padding: 0 var(--s3); max-width: 340px; overflow: hidden; }
+.freshness:hover { text-decoration: none; filter: brightness(.97); }
+.freshness-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.change-group + .change-group { margin-top: var(--s4); }
+.change-group h4 { font-size: var(--fs-13); color: var(--text-3); font-weight: 600; margin: 0;
+  display: flex; align-items: center; gap: var(--s2); }
+@media (max-width: 1120px) { .freshness { max-width: 220px; } }
+@media (max-width: 760px) {
+  .freshness { width: 32px; padding: 0; justify-content: center; }
+  .freshness-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+}

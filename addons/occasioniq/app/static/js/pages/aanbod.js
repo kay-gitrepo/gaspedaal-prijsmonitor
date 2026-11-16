@@ -6,6 +6,7 @@ import {AVAILABILITY} from '../labels.js';
 import {$, badge, button, card, emptyState, icon, notice, pageHead, skeletons, statusBadge, table, tabs} from '../ui.js';
 import {profileQuery} from '../context.js';
 import {matchCell, statusChip} from '../status.js';
+import {failureNotice} from '../freshness.js';
 
 let items = [];
 let state = {};
@@ -226,7 +227,7 @@ export async function render(params = new URLSearchParams()) {
   const title = state.filters.shortlist ? 'Shortlist' : 'Aanbod';
   $('#content').innerHTML = pageHead(title, 'Alle gevolgde auto\'s met vraagprijs, prijsverloop, match en status.',
     button('Prijshistorie downloaden', {href: '/api/v1/export/observations.csv', icon: 'download'}))
-    + card('', `<div id="filter-bar">${filterBar()}</div><div class="chips active-filters" id="active-filters"
+    + failureNotice() + card('', `<div id="filter-bar">${filterBar()}</div><div class="chips active-filters" id="active-filters"
       aria-live="polite"></div><div id="offers"></div>`, {cls: 'offers-card'});
   draw();
 }

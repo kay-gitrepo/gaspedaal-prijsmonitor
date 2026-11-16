@@ -21,6 +21,7 @@ from app.version import VERSION
 from app.db import connect, dumps, init_db, now, rowdict, uid
 from app.extraction import cleaned_text, sha256 as text_hash
 from app.insights import first_photo, listing_insights
+from app import changes as run_changes
 from app.provider import Snapshot, validate_search_url
 from app.scoring import negotiation_snapshot
 from app.worker import start_worker, stop_worker, get_criteria, recalculate_score, recalculate_all, apply_local_claims
@@ -413,9 +414,34 @@ def run_detail(run_id:str,_=Depends(require_ui),con=Depends(connection)):
     data['summary']=json.loads(data.pop('summary_json'))
     data['scope']=json.loads(data.pop('scope_json'))
     data['events']=[dict(r) for r in con.execute('SELECT * FROM run_events WHERE run_id=? ORDER BY id',(run_id,))]
+    titles={r['id']:r['title'] for r in con.execute('SELECT id,title FROM search_profiles')}
+    # Completeness per search, from the 'processed' event of each search in this check.
+    data['profiles']=[]
+    for pid,result in (data['summary'].get('per_profile') or {}).items():
+        metrics=next((json.loads(e['metrics_json']) for e in data['events']
+                      if e['stage']=='SOURCE' and json.loads(e['metrics_json'] or '{}').get('profile_id')==pid
+                      and 'found' in json.loads(e['metrics_json'] or '{}')),{})
+        meta=metrics.get('provider_metadata') or {}
+        data['profiles'].append({'id':pid,'title':titles.get(pid,'Onbekende zoekopdracht'),'state':result.get('state'),
+            'found':metrics.get('found',result.get('found')),'complete':metrics.get('provider_complete'),
+            'pages':meta.get('pages_fetched'),'expected':meta.get('expected_listings'),
+            'skipped_invalid':metrics.get('skipped_invalid',0),'source':meta.get('source')})
+    data['changes']=run_changes.changes(con,None,run_id)['groups']
     data['gemini_requests']=[dict(r) for r in con.execute('''SELECT id,listing_id,decision,model_id,tokens_in,tokens_out,error,created_at
                                                      FROM integration_requests WHERE run_id=? ORDER BY created_at''',(run_id,))]
     return data
+
+@app.get('/api/v1/status')
+def check_status(_=Depends(require_ui),con=Depends(connection)):
+    """Freshness: last finished check, last successful check and a running one (for the top bar)."""
+    return run_changes.status(con)
+
+@app.get('/api/v1/changes')
+def check_changes(profile_id:str|None=None,run_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
+    """What changed in one check (default: the last successful one), from the recorded events."""
+    if run_id and not con.execute('SELECT 1 FROM refresh_runs WHERE id=?',(run_id,)).fetchone():
+        raise HTTPException(404,'Controle niet gevonden')
+    return run_changes.changes(con,profile_id,run_id)
 
 @app.get('/api/v1/dashboard')
 def dashboard(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
