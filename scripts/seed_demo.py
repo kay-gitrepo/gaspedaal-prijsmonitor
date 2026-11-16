@@ -6,7 +6,8 @@ Schrijft rechtstreeks via app.db (geen HTTP). Resultaat is reproduceerbaar (rand
 - per auto een eerste waarneming op een gespreide datum (een deel stond er al bij de start);
 - bij ongeveer een derde één of twee prijsverlagingen;
 - twee auto's die verdwenen zijn, één die even weg was en terugkwam;
-- één auto die pas bij de laatste controle voor het eerst is gezien.
+- één auto die pas bij de laatste controle voor het eerst is gezien;
+- twee zoekopdrachten die elkaar deels overlappen (alle auto's, en alleen auto's vanaf 45.000 km).
 Alle auto's zijn fictief (DEMO).
 """
 import argparse
@@ -27,8 +28,14 @@ from app.extraction import cleaned_text, sha256  # noqa: E402
 from app.worker import analyze_listing, external_key, get_criteria  # noqa: E402
 
 DAYS = 45
-PROFILE_ID = 'sp_demo_xc90'
 SNAPSHOT = ROOT / 'sample_data' / 'xc90_demo_snapshot.json'
+PROFILES = [
+    {'id': 'sp_demo_xc90', 'title': 'Volvo XC90 (demo)', 'budget': 72500,
+     'url': 'https://www.gaspedaal.nl/volvo/xc90?bmin=2025', 'accepts': lambda ad: True},
+    {'id': 'sp_demo_xc90_km', 'title': 'Volvo XC90 vanaf 45.000 km (demo)', 'budget': None,
+     'url': 'https://www.gaspedaal.nl/volvo/xc90?bmin=2025&kmmin=45000',
+     'accepts': lambda ad: (ad.get('kilometers') or 0) >= 45000},
+]
 TABLES = ['claims', 'integration_requests', 'negotiation_notes', 'listing_events', 'source_detail_attempts',
           'source_price_observations', 'listing_sources', 'price_observations', 'profile_listings', 'run_events',
           'trigger_attempts', 'listings', 'refresh_runs', 'search_profiles']
@@ -90,19 +97,27 @@ def main():
     print(f'Demo-data geladen in {settings.database_path}')
 
 
+def empty_stats():
+    return {'profiles': len(PROFILES), 'profiles_ok': len(PROFILES), 'profiles_partial': 0, 'profiles_failed': 0,
+            'found': 0, 'new': 0, 'price_changes': 0, 'missing_new': 0, 'off_market_new': 0, 'reappeared': 0,
+            'skipped_invalid': 0, 'out_of_scope_new': 0, 'observations': 0, 'gemini_calls': 0, 'gemini_errors': 0,
+            'cache_hits': 0, 'portals': 0, 'portal_price_changes': 0}
+
+
 def seed(con):
     snapshot = json.loads(SNAPSHOT.read_text(encoding='utf-8'))
     plans = plan_cars(snapshot['listings'])
     today = datetime.now(timezone.utc).date()
     start = today - timedelta(days=DAYS - 1)
     created = iso(datetime.combine(start, time(6, 0), timezone.utc) - timedelta(days=1))
-    profile = {'id': PROFILE_ID, 'provider': 'fixture', 'fixture_payload': '{}'}
-    con.execute('''INSERT INTO search_profiles(id,title,search_url,provider,fixture_payload,enabled,created_at,updated_at)
-                   VALUES(?,?,?,?,?,1,?,?)''',
-                (PROFILE_ID, 'Volvo XC90 (demo)', 'https://www.gaspedaal.nl/volvo/xc90?bmin=2025', 'fixture',
-                 '{}', created, created))
+    for p in PROFILES:
+        con.execute('''INSERT INTO search_profiles(id,title,search_url,provider,fixture_payload,enabled,created_at,
+                       updated_at,budget_eur) VALUES(?,?,?,?,?,1,?,?,?)''',
+                    (p['id'], p['title'], p['url'], 'fixture', '{}', created, created, p['budget']))
     ids = {}
-    state = {}
+    price_now = {}
+    status = {}          # (profiel, auto) -> status in die zoekopdracht
+    missing_since = {}
     run_id = None
     for day in range(DAYS):
         moment = datetime.combine(start + timedelta(days=day), time(7, 0), timezone.utc)
@@ -112,71 +127,83 @@ def seed(con):
         con.execute('''INSERT INTO refresh_runs(id,trigger_source,state,scope_json,request_hash,created_at,started_at,
                        finished_at,summary_json) VALUES(?,?,?,?,?,?,?,?,?)''',
                     (run_id, 'HOME_ASSISTANT', 'RUNNING', '"all"', 'seed', ts, ts, None, '{}'))
-        stats = {'profiles': 1, 'profiles_ok': 1, 'profiles_partial': 0, 'profiles_failed': 0, 'found': 0, 'new': 0,
-                 'price_changes': 0, 'missing_new': 0, 'off_market_new': 0, 'reappeared': 0, 'observations': 0,
-                 'gemini_calls': 0, 'gemini_errors': 0, 'cache_hits': 0, 'portals': 0, 'portal_price_changes': 0}
+        stats = empty_stats()
+        per_profile = {p['id']: {'state': 'COMPLETE', 'found': 0, 'new': 0} for p in PROFILES}
         for plan in plans:
             ad = plan['ad']
-            visible = day >= plan['first'] and day not in plan['gone']
             key = ad['external_id']
+            visible = day >= plan['first'] and day not in plan['gone']
+            price = price_on(plan, day)
             if visible:
-                stats['found'] += 1
-                price = price_on(plan, day)
                 if key not in ids:
                     ids[key] = uid('car')
                     text = cleaned_text(ad['title'], ad.get('description', ''))
                     con.execute('''INSERT INTO listings(id,external_id,title,url,year,kilometers,trim,seller,price_eur,
-                        description,text_hash,first_seen,last_seen,updated_at,photos_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                        (ids[key], external_key(profile, {'source': 'IMPORT'}, key), ad['title'], ad.get('url'),
+                        description,text_hash,first_seen,last_seen,updated_at,photos_json)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                        (ids[key], external_key({}, {'source': 'IMPORT'}, key), ad['title'], ad.get('url'),
                          ad.get('year'), ad.get('kilometers'), ad.get('trim'), ad.get('seller'), price,
                          ad.get('description', ''), sha256(text), ts, ts, ts, '[]'))
                     con.execute('''INSERT INTO listing_events(run_id,listing_id,event_type,new_price,created_at)
                                    VALUES(?,?,?,?,?)''', (run_id, ids[key], 'FIRST_SEEN', price, ts))
-                    con.execute('''INSERT INTO profile_listings(profile_id,listing_id,last_seen,status)
-                                   VALUES(?,?,?,'ACTIVE')''', (PROFILE_ID, ids[key], ts))
                     stats['new'] += 1
-                    state[key] = {'price': price, 'status': 'ACTIVE'}
                 else:
-                    old = state[key]
-                    if old['status'] != 'ACTIVE':
-                        stats['reappeared'] += 1
-                        con.execute('''INSERT INTO listing_events(run_id,listing_id,event_type,new_price,created_at)
-                                       VALUES(?,?,?,?,?)''', (run_id, ids[key], 'REAPPEARED', price, ts))
-                    if price != old['price']:
+                    if price != price_now[key]:
                         stats['price_changes'] += 1
                         con.execute('''INSERT INTO listing_events(run_id,listing_id,event_type,previous_price,new_price,
                                        created_at) VALUES(?,?,?,?,?,?)''',
-                                    (run_id, ids[key], 'PRICE_CHANGED', old['price'], price, ts))
+                                    (run_id, ids[key], 'PRICE_CHANGED', price_now[key], price, ts))
                     con.execute('UPDATE listings SET price_eur=?,last_seen=?,updated_at=? WHERE id=?',
                                 (price, ts, ts, ids[key]))
-                    con.execute('''UPDATE profile_listings SET last_seen=?,missing_since=NULL,missing_checks=0,
-                                   status='ACTIVE' WHERE profile_id=? AND listing_id=?''', (ts, PROFILE_ID, ids[key]))
-                    state[key] = {'price': price, 'status': 'ACTIVE'}
-                con.execute('''INSERT INTO price_observations(run_id,profile_id,listing_id,price_eur,observed_at)
-                               VALUES(?,?,?,?,?)''', (run_id, PROFILE_ID, ids[key], price, ts))
-                stats['observations'] += 1
-            elif key in state and state[key]['status'] != 'OFF_MARKET':
-                entry = con.execute('SELECT * FROM profile_listings WHERE profile_id=? AND listing_id=?',
-                                    (PROFILE_ID, ids[key])).fetchone()
-                if state[key]['status'] == 'ACTIVE':
-                    stats['missing_new'] += 1
-                    state[key]['status'] = 'MISSING_UNCONFIRMED'
-                    con.execute('''UPDATE profile_listings SET status='MISSING_UNCONFIRMED',missing_since=?,
-                                   missing_checks=1 WHERE profile_id=? AND listing_id=?''', (ts, PROFILE_ID, ids[key]))
-                    con.execute('''INSERT INTO listing_events(run_id,listing_id,event_type,created_at)
-                                   VALUES(?,?,?,?)''', (run_id, ids[key], 'MISSING_UNCONFIRMED', ts))
-                else:
-                    since = datetime.fromisoformat(entry['missing_since'])
-                    if (moment - since).days >= settings.disappearance_days:
-                        stats['off_market_new'] += 1
-                        state[key]['status'] = 'OFF_MARKET'
+                price_now[key] = price
+                stats['found'] += 1
+            events_done = False
+            for p in PROFILES:
+                if not p['accepts'](ad) or key not in ids:
+                    continue
+                pk = (p['id'], key)
+                if visible:
+                    per_profile[p['id']]['found'] += 1
+                    if pk not in status:
+                        per_profile[p['id']]['new'] += 1
+                        con.execute('''INSERT INTO profile_listings(profile_id,listing_id,last_seen,status)
+                                       VALUES(?,?,?,'ACTIVE')''', (p['id'], ids[key], ts))
+                    else:
+                        if status[pk] != 'ACTIVE' and not events_done:
+                            stats['reappeared'] += 1
+                            con.execute('''INSERT INTO listing_events(run_id,listing_id,event_type,new_price,created_at)
+                                           VALUES(?,?,?,?,?)''', (run_id, ids[key], 'REAPPEARED', price, ts))
+                            events_done = True
+                        con.execute('''UPDATE profile_listings SET last_seen=?,missing_since=NULL,missing_checks=0,
+                                       status='ACTIVE' WHERE profile_id=? AND listing_id=?''', (ts, p['id'], ids[key]))
+                    status[pk] = 'ACTIVE'
+                    con.execute('''INSERT INTO price_observations(run_id,profile_id,listing_id,price_eur,observed_at)
+                                   VALUES(?,?,?,?,?)''', (run_id, p['id'], ids[key], price, ts))
+                    stats['observations'] += 1
+                elif pk in status and status[pk] != 'OFF_MARKET':
+                    if status[pk] == 'ACTIVE':
+                        status[pk] = 'MISSING_UNCONFIRMED'
+                        missing_since[pk] = moment
+                        con.execute('''UPDATE profile_listings SET status='MISSING_UNCONFIRMED',missing_since=?,
+                                       missing_checks=1 WHERE profile_id=? AND listing_id=?''', (ts, p['id'], ids[key]))
+                        if not events_done:
+                            stats['missing_new'] += 1
+                            con.execute('''INSERT INTO listing_events(run_id,listing_id,event_type,created_at)
+                                           VALUES(?,?,?,?)''', (run_id, ids[key], 'MISSING_UNCONFIRMED', ts))
+                            events_done = True
+                    elif (moment - missing_since[pk]).days >= settings.disappearance_days:
+                        status[pk] = 'OFF_MARKET'
                         con.execute('''UPDATE profile_listings SET status='OFF_MARKET',missing_checks=missing_checks+1
-                                       WHERE profile_id=? AND listing_id=?''', (PROFILE_ID, ids[key]))
-                        con.execute('''INSERT INTO listing_events(run_id,listing_id,event_type,created_at)
-                                       VALUES(?,?,?,?)''', (run_id, ids[key], 'OFF_MARKET', ts))
+                                       WHERE profile_id=? AND listing_id=?''', (p['id'], ids[key]))
+                        if not events_done:
+                            stats['off_market_new'] += 1
+                            con.execute('''INSERT INTO listing_events(run_id,listing_id,event_type,created_at)
+                                           VALUES(?,?,?,?)''', (run_id, ids[key], 'OFF_MARKET', ts))
+                            events_done = True
                     else:
                         con.execute('''UPDATE profile_listings SET missing_checks=missing_checks+1
-                                       WHERE profile_id=? AND listing_id=?''', (PROFILE_ID, ids[key]))
+                                       WHERE profile_id=? AND listing_id=?''', (p['id'], ids[key]))
+        stats['per_profile'] = per_profile
         done = iso(moment + timedelta(seconds=40))
         con.execute("UPDATE refresh_runs SET state='COMPLETE',finished_at=?,summary_json=? WHERE id=?",
                     (done, dumps(stats), run_id))
@@ -187,13 +214,12 @@ def seed(con):
         WHEN SUM(p.status='ACTIVE')>0 THEN 'ACTIVE'
         WHEN SUM(p.status='MISSING_UNCONFIRMED')>0 THEN 'MISSING_UNCONFIRMED'
         ELSE 'OFF_MARKET' END FROM profile_listings p WHERE p.listing_id=listings.id),'ACTIVE')''')
-    # De JSON-import van het profiel weerspiegelt de huidige stand, zodat "Nu controleren" daarop doorgaat.
-    current = []
-    for plan in plans:
-        if state.get(plan['ad']['external_id'], {}).get('status') == 'ACTIVE':
-            current.append({**plan['ad'], 'price_eur': price_on(plan, DAYS - 1)})
-    con.execute('UPDATE search_profiles SET fixture_payload=? WHERE id=?',
-                (dumps({'complete': True, 'metadata': {}, 'listings': current}), PROFILE_ID))
+    # De JSON-import van elk profiel weerspiegelt de huidige stand, zodat "Nu controleren" daarop doorgaat.
+    for p in PROFILES:
+        current = [{**plan['ad'], 'price_eur': price_on(plan, DAYS - 1)} for plan in plans
+                   if status.get((p['id'], plan['ad']['external_id'])) == 'ACTIVE']
+        con.execute('UPDATE search_profiles SET fixture_payload=? WHERE id=?',
+                    (dumps({'complete': True, 'metadata': {}, 'listings': current}), p['id']))
     criteria = get_criteria(con)
     for listing_id in ids.values():
         analyze_listing(con, listing_id, run_id, criteria)

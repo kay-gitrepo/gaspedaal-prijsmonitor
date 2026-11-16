@@ -2,8 +2,8 @@
 import {api, setCsrf} from './api.js';
 import {PAGES, parseHash, replace} from './router.js';
 import {$, $$, closeDialogView, dialogOpen, errorState, skeletons, toast} from './ui.js';
-import {startRefresh, onRefreshAccepted} from './refresh.js';
-import {refreshProfileLabel} from './context.js';
+import {startRefresh, onRefreshFinished} from './refresh.js';
+import {onProfileChange, refreshProfiles, selectProfile} from './context.js';
 import * as overzicht from './pages/overzicht.js';
 import * as aanbod from './pages/aanbod.js';
 import * as auto from './pages/auto.js';
@@ -23,6 +23,7 @@ const MODULES = Object.values(BASE).concat([auto]);
 const actions = Object.assign({}, ...MODULES.map(m => m.actions || {}));
 const submits = Object.assign({}, ...MODULES.map(m => m.submits || {}));
 const changes = Object.assign({}, ...MODULES.map(m => m.changes || {}));
+const inputs = Object.assign({}, ...MODULES.map(m => m.inputs || {}));
 
 let renderedBase = null;
 let renderedQuery = '';
@@ -101,7 +102,7 @@ function closeMenu() {
 async function showApp() {
   $('#login').classList.add('hidden');
   $('#shell').classList.remove('hidden');
-  refreshProfileLabel();
+  await refreshProfiles();
   await route();
 }
 
@@ -121,6 +122,9 @@ actions.retry = () => renderBase(renderedBase || 'overzicht');
 actions['close-menu'] = () => closeMenu();
 
 document.addEventListener('click', async e => {
+  $$('details.menu[open]').forEach(m => {
+    if (!m.contains(e.target)) m.removeAttribute('open');
+  });
   if (e.target.closest('[data-close]')) {
     closeDetail();
     return;
@@ -166,6 +170,11 @@ document.addEventListener('submit', async e => {
   }
 });
 
+document.addEventListener('input', e => {
+  const handler = inputs[e.target.dataset?.input];
+  if (handler) handler(e.target);
+});
+
 document.addEventListener('change', async e => {
   const handler = changes[e.target.dataset?.change];
   if (!handler) return;
@@ -186,6 +195,7 @@ dialog.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('#sidebar').classList.contains('show')) closeMenu();
+  if (e.key === 'Escape') $$('details.menu[open]').forEach(m => m.removeAttribute('open'));
 });
 $('#top-refresh').addEventListener('click', e => startRefresh('all', e.currentTarget));
 $('#logout').addEventListener('click', async () => {
@@ -203,9 +213,14 @@ $('#menu-toggle').addEventListener('click', () => {
 window.addEventListener('hashchange', () => {
   if (!$('#shell').classList.contains('hidden')) route();
 });
-onRefreshAccepted(() => {
-  if (['controles', 'overzicht'].includes(renderedBase) && !dialogOpen()) renderBase(renderedBase);
+onRefreshFinished(async () => {
+  await refreshProfiles();
+  if (renderedBase && !dialogOpen()) await renderBase(renderedBase);
 });
+onProfileChange(() => {
+  if (renderedBase && !dialogOpen()) renderBase(renderedBase);
+});
+$('#profile-select').addEventListener('change', e => selectProfile(e.target.value));
 
 initialize().catch(e => {
   $('#login').classList.remove('hidden');

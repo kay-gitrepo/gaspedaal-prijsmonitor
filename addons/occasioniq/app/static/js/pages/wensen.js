@@ -22,6 +22,11 @@ function row(x) {
 export async function render() {
   const data = await api('/criteria');
   criteria = data.items;
+  try {
+    localStorage.setItem('occasioniq.wensen-bekeken', '1');
+  } catch {
+    /* opslag niet beschikbaar */
+  }
   $('#content').innerHTML = pageHead('Mijn wensen',
     'Bepaal welke uitrusting je echt wilt (must-have) en wat extra punten oplevert (nice-to-have).')
     + notice('Staat een optie niet in de advertentie, dan geldt die als <strong>onbekend</strong>, niet als afwezig. '

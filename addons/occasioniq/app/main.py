@@ -55,6 +55,12 @@ class ProfileBody(BaseModel):
     title: str = Field(min_length=2,max_length=150)
     search_url: str = Field(min_length=15,max_length=2048)
 
+class ProfilePatch(BaseModel):
+    title: str | None = Field(default=None,min_length=2,max_length=150)
+    search_url: str | None = Field(default=None,min_length=15,max_length=2048)
+    budget_eur: int | None = Field(default=None,ge=1000,le=2_000_000)
+    enabled: bool | None = None
+
 class SourceBody(BaseModel):
     provider: str
 
@@ -150,10 +156,61 @@ def logout(response:Response,_=Depends(require_csrf)):
     response.delete_cookie('price_session',secure=settings.secure_cookies,samesite='strict')
     return {'ok':True}
 
+def last_run_for(con, profile_id):
+    """Latest finished check that covered this profile, with that profile's own outcome when recorded."""
+    for run in con.execute('''SELECT id,state,created_at,finished_at,scope_json,summary_json FROM refresh_runs
+                              WHERE finished_at IS NOT NULL ORDER BY created_at DESC LIMIT 200'''):
+        scope=json.loads(run['scope_json'])
+        if scope!='all' and profile_id not in (scope.get('profile_ids') or []):continue
+        summary=json.loads(run['summary_json'])
+        own=(summary.get('per_profile') or {}).get(profile_id)
+        if own is None and 'per_profile' in summary:continue  # profile was paused or not part of this check
+        return {'run_id':run['id'],'at':run['finished_at'] or run['created_at'],
+                'state':(own or {}).get('state',run['state']),'found':(own or {}).get('found')}
+    return None
+
+
 @app.get('/api/v1/profiles')
-def profiles(_=Depends(require_ui),con=Depends(connection)):
-    rows=[dict(x) for x in con.execute('SELECT id,title,search_url,provider,enabled,created_at,updated_at,fixture_payload IS NOT NULL as has_snapshot FROM search_profiles ORDER BY title')]
+def profiles(archived:bool=False,_=Depends(require_ui),con=Depends(connection)):
+    rows=[dict(x) for x in con.execute(f'''SELECT p.id,p.title,p.search_url,p.provider,p.enabled,p.created_at,p.updated_at,
+        p.fixture_payload IS NOT NULL AS has_snapshot,p.budget_eur,p.archived_at,p.scope_changed_at,
+        (SELECT COUNT(*) FROM profile_listings pl WHERE pl.profile_id=p.id AND pl.status='ACTIVE') AS listings_active,
+        (SELECT COUNT(*) FROM profile_listings pl JOIN listings l ON l.id=pl.listing_id
+           WHERE pl.profile_id=p.id AND pl.status='ACTIVE' AND l.eligibility='MATCH') AS listings_match
+        FROM search_profiles p WHERE p.archived_at IS {'NOT ' if archived else ''}NULL ORDER BY p.title''')]
+    for row in rows:
+        row['last_run']=last_run_for(con,row['id'])
     return {'items':rows, 'gaspedaal_api_configured':bool(settings.data_source_approved and settings.gaspedaal_api_search_template), 'gaspedaal_site_available':settings.data_source_approved}
+
+@app.patch('/api/v1/profiles/{profile_id}')
+def update_profile(profile_id:str,body:ProfilePatch,_=Depends(require_csrf),con=Depends(connection)):
+    row=con.execute('SELECT * FROM search_profiles WHERE id=? AND archived_at IS NULL',(profile_id,)).fetchone()
+    if not row:raise HTTPException(404,'Zoekopdracht niet gevonden')
+    changes={}
+    given=body.model_fields_set
+    if 'title' in given and body.title is not None:changes['title']=body.title.strip()
+    if 'search_url' in given and body.search_url is not None:
+        try:url=validate_search_url(body.search_url)
+        except ValueError as exc:raise HTTPException(422,str(exc))
+        if url!=row['search_url']:
+            changes['search_url']=url
+            # Next complete check marks unseen cars as outside the new filters instead of disappeared.
+            changes['scope_changed_at']=now()
+    if 'budget_eur' in given:changes['budget_eur']=body.budget_eur
+    if 'enabled' in given and body.enabled is not None:changes['enabled']=int(body.enabled)
+    if changes:
+        changes['updated_at']=now()
+        con.execute(f'UPDATE search_profiles SET {",".join(k+"=?" for k in changes)} WHERE id=?',
+                    (*changes.values(),profile_id))
+    return {'updated':profile_id,'scope_changed':'search_url' in changes}
+
+@app.post('/api/v1/profiles/{profile_id}/archive')
+def archive_profile(profile_id:str,_=Depends(require_csrf),con=Depends(connection)):
+    """Archive keeps all cars and price history; the search is no longer checked or shown."""
+    cur=con.execute('UPDATE search_profiles SET archived_at=?,enabled=0,updated_at=? WHERE id=? AND archived_at IS NULL',
+                    (now(),now(),profile_id))
+    if not cur.rowcount:raise HTTPException(404,'Zoekopdracht niet gevonden')
+    return {'archived':profile_id}
 
 @app.post('/api/v1/profiles',status_code=201)
 def create_profile(body:ProfileBody,_=Depends(require_csrf),con=Depends(connection)):
@@ -279,10 +336,17 @@ def run_detail(run_id:str,_=Depends(require_ui),con=Depends(connection)):
     return data
 
 @app.get('/api/v1/dashboard')
-def dashboard(_=Depends(require_ui),con=Depends(connection)):
-    rows=[dict(r) for r in con.execute("SELECT id,price_eur,year,kilometers,eligibility,score_total FROM listings WHERE availability='ACTIVE'")]
+def dashboard(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
+    if profile_id:
+        rows=[dict(r) for r in con.execute('''SELECT l.id,l.price_eur,l.year,l.kilometers,l.eligibility,l.score_total
+            FROM listings l JOIN profile_listings pl ON pl.listing_id=l.id
+            WHERE pl.profile_id=? AND pl.status='ACTIVE' ''',(profile_id,))]
+        daily=con.execute('''SELECT substr(observed_at,1,10) AS date, listing_id, price_eur FROM price_observations
+            WHERE profile_id=? ORDER BY observed_at DESC,id DESC''',(profile_id,)).fetchall()
+    else:
+        rows=[dict(r) for r in con.execute("SELECT id,price_eur,year,kilometers,eligibility,score_total FROM listings WHERE availability='ACTIVE'")]
+        daily=con.execute('SELECT substr(observed_at,1,10) AS date, listing_id, price_eur FROM price_observations ORDER BY observed_at DESC,id DESC').fetchall()
     values=sorted(r['price_eur'] for r in rows)
-    daily=con.execute('SELECT substr(observed_at,1,10) AS date, listing_id, price_eur FROM price_observations ORDER BY observed_at DESC,id DESC').fetchall()
     # Last observation per vehicle and calendar day, so repeat scans do not overweight a listing.
     seen=set(); dates={}
     for r in daily:
@@ -293,21 +357,25 @@ def dashboard(_=Depends(require_ui),con=Depends(connection)):
     return {'active_listings':len(rows),'median_asking':values[len(values)//2] if values else None,
             'matches':sum(r['eligibility']=='MATCH' for r in rows),
             'average_score':round(sum(r['score_total'] for r in rows)/len(rows),1) if rows else 0,
-            'price_trend':trend,
-            'source_status':'GASPEDAAL_SEARCH_URL_EXPERIMENTAL' if settings.data_source_approved else 'HANDMATIGE_IMPORT',
-            'limitations':['Uitlezing van Gaspedaal-HTML is experimenteel en moet op de eigen server worden gevalideerd.' if settings.data_source_approved else 'Directe Gaspedaal-zoeklink is nog niet ingeschakeld; alleen geïmporteerde snapshots worden verwerkt.',
-                           'Verdwenen advertenties zijn geen bewezen verkopen; getoonde prijzen zijn vraagprijzen.']}
+            'price_trend':trend}
 
 @app.get('/api/v1/listings')
 def listings(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
+    # Within one search, the availability shown is that search's own status (e.g. outside its new filters).
     query='''SELECT l.*, (SELECT MIN(price_eur) FROM price_observations p WHERE p.listing_id=l.id) AS lowest_observed_price,
-          (SELECT COUNT(*) FROM price_observations p WHERE p.listing_id=l.id) AS observations
-          FROM listings l'''
+          (SELECT COUNT(*) FROM price_observations p WHERE p.listing_id=l.id) AS observations'''
     params=[]
     if profile_id:
-        query+=' JOIN profile_listings pl ON pl.listing_id=l.id AND pl.profile_id=?';params.append(profile_id)
-    query+=' ORDER BY (l.availability="ACTIVE") DESC,l.score_total DESC,l.price_eur ASC LIMIT 1000'
-    return {'items':[dict(r) for r in con.execute(query,params)]}
+        query+=''',pl.status AS profile_status FROM listings l
+          JOIN profile_listings pl ON pl.listing_id=l.id AND pl.profile_id=?
+          ORDER BY (pl.status='ACTIVE') DESC''';params.append(profile_id)
+    else:
+        query+=" FROM listings l ORDER BY (l.availability='ACTIVE') DESC"
+    query+=',l.score_total DESC,l.price_eur ASC LIMIT 1000'
+    items=[dict(r) for r in con.execute(query,params)]
+    for item in items:
+        if 'profile_status' in item:item['availability']=item.pop('profile_status')
+    return {'items':items}
 
 @app.get('/api/v1/listings/{listing_id}')
 def listing_detail(listing_id:str,_=Depends(require_ui),con=Depends(connection)):

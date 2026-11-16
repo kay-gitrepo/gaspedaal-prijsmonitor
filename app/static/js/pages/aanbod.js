@@ -2,6 +2,7 @@ import {api} from '../api.js';
 import {esc, euro, fmt} from '../format.js';
 import {AVAILABILITY, ELIGIBILITY} from '../labels.js';
 import {$, bar, button, card, emptyState, icon, pageHead, skeletons, statusBadge, table} from '../ui.js';
+import {profileQuery} from '../context.js';
 
 let items = [];
 let sort = {key: 'score', dir: 'desc'};
@@ -66,7 +67,7 @@ function draw() {
 }
 
 export async function render(params = new URLSearchParams()) {
-  const data = await api('/listings');
+  const data = await api('/listings' + profileQuery());
   items = data.items;
   shortlistOnly = params.get('shortlist') === '1';
   const title = shortlistOnly ? 'Shortlist' : 'Aanbod';

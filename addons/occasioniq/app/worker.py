@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from hashlib import sha256
 from app.config import settings
-from app.db import connect, dumps, log_event, now, uid
+from app.db import AVAILABILITY_CASE, connect, dumps, log_event, now, uid
 from app.extraction import cleaned_text, local_claims, sha256 as text_hash
 from app.gemini import classify, build_payload, PROMPT_VERSION
 from app.provider import provider_for
@@ -120,6 +120,7 @@ def scan_profile(con,run_id,profile,criteria):
     invalid=[ad for ad in snapshot.listings if not (settings.min_price <= ad.price_eur <= settings.max_price)]
     valid_ads=[ad for ad in snapshot.listings if settings.min_price <= ad.price_eur <= settings.max_price]
     stats={'found':count,'new':0,'price_changes':0,'missing_new':0,'off_market_new':0,'reappeared':0,
+           'out_of_scope_new':0,
            'skipped_invalid':len(invalid),'observations':0,
            'gemini_calls':0,'gemini_errors':0,'cache_hits':0, 'portals':0,'portal_price_changes':0,'provider_complete':snapshot.complete,
            'provider_metadata':snapshot.metadata}
@@ -233,9 +234,17 @@ def scan_profile(con,run_id,profile,criteria):
             stats['observations']+=1
             seen.add(listing_id)
         if snapshot.complete:
+            # After a changed search URL, cars outside the new filters are kept but no longer followed:
+            # they become OUT_OF_SCOPE without a disappearance event (no false "verdwenen").
+            scope_changed=profile['scope_changed_at'] if 'scope_changed_at' in profile.keys() else None
             members=con.execute('SELECT * FROM profile_listings WHERE profile_id=?',(profile['id'],)).fetchall()
             for entry in members:
-                if entry['listing_id'] in seen or entry['status']=='OFF_MARKET':
+                if entry['listing_id'] in seen or entry['status'] in ('OFF_MARKET','OUT_OF_SCOPE'):
+                    continue
+                if scope_changed:
+                    stats['out_of_scope_new']+=1
+                    con.execute('''UPDATE profile_listings SET status='OUT_OF_SCOPE',missing_since=NULL,missing_checks=0
+                       WHERE profile_id=? AND listing_id=?''',(profile['id'],entry['listing_id']))
                     continue
                 if not entry['missing_since']:
                     stats['missing_new']+=1
@@ -254,11 +263,12 @@ def scan_profile(con,run_id,profile,criteria):
                     else:
                         con.execute('UPDATE profile_listings SET missing_checks=missing_checks+1 WHERE profile_id=? AND listing_id=?',
                                     (profile['id'],entry['listing_id']))
+            if scope_changed:
+                con.execute('UPDATE search_profiles SET scope_changed_at=NULL WHERE id=? AND scope_changed_at=?',
+                            (profile['id'],scope_changed))
         # Global listing availability should be active if active anywhere, avoiding false sales across search profiles.
-        con.execute('''UPDATE listings SET availability=CASE
-            WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id AND p.status='ACTIVE') THEN 'ACTIVE'
-            WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id AND p.status='MISSING_UNCONFIRMED') THEN 'MISSING_UNCONFIRMED'
-            ELSE 'OFF_MARKET' END WHERE id IN (SELECT listing_id FROM profile_listings WHERE profile_id=?)''',(profile['id'],))
+        con.execute(f'''UPDATE listings SET availability={AVAILABILITY_CASE}
+            WHERE id IN (SELECT listing_id FROM profile_listings WHERE profile_id=?)''',(profile['id'],))
         log_event(con,run_id,'SOURCE','INFO','Zoekopdracht verwerkt',{'profile_id':profile['id'],**stats})
         con.execute('COMMIT')
     except Exception:
@@ -292,8 +302,9 @@ def execute_run(run_id):
         criteria=get_criteria(con)
         totals={'profiles':len(profiles),'profiles_ok':0,'profiles_partial':0,'profiles_failed':0,
                 'found':0,'new':0,'price_changes':0,'missing_new':0,'off_market_new':0,
-                'reappeared':0,'skipped_invalid':0,'observations':0,'gemini_calls':0,'gemini_errors':0,'cache_hits':0,'portals':0,'portal_price_changes':0}
+                'reappeared':0,'skipped_invalid':0,'out_of_scope_new':0,'observations':0,'gemini_calls':0,'gemini_errors':0,'cache_hits':0,'portals':0,'portal_price_changes':0}
         errors=[]
+        per_profile={}
         for profile in profiles:
             log_event(con,run_id,'PROFILE','INFO',f'Zoekopdracht wordt gecontroleerd: {profile["title"]}')
             try:
@@ -302,12 +313,16 @@ def execute_run(run_id):
                     totals[key]+=result[key] if isinstance(result[key],int) else 0
                 if result['provider_complete']:totals['profiles_ok']+=1
                 else:totals['profiles_partial']+=1
+                per_profile[profile['id']]={'state':'COMPLETE' if result['provider_complete'] else 'PARTIAL',
+                                            'found':result['found'],'new':result['new']}
             except Exception as exc:
                 totals['profiles_failed']+=1
+                per_profile[profile['id']]={'state':'FAILED'}
                 message=f'{profile["title"]}: {type(exc).__name__}: {str(exc)[:250]}'
                 errors.append(message)
                 log_event(con,run_id,'PROFILE','ERROR',message)
                 logger.warning('Profile scan failed run=%s profile=%s type=%s',run_id,profile['id'],type(exc).__name__)
+        totals['per_profile']=per_profile
         if totals['profiles_ok']==totals['profiles'] and not totals['gemini_errors']:
             state='COMPLETE'
         elif totals['profiles_ok'] or totals['profiles_partial']:

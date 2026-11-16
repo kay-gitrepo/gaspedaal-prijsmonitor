@@ -211,16 +211,21 @@ def merge_listings(con, keep, drop):
     refresh_availability(con, [keep])
 
 
+# Active anywhere wins; then 'not seen recently'; then off market. OUT_OF_SCOPE (outside a changed search)
+# counts neither as active nor as disappeared. Rows without any membership keep their value.
+AVAILABILITY_CASE = '''CASE
+    WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id AND p.status='ACTIVE') THEN 'ACTIVE'
+    WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id AND p.status='MISSING_UNCONFIRMED')
+      THEN 'MISSING_UNCONFIRMED'
+    WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id AND p.status='OFF_MARKET') THEN 'OFF_MARKET'
+    WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id AND p.status='OUT_OF_SCOPE')
+      THEN 'OUT_OF_SCOPE'
+    ELSE availability END'''
+
+
 def refresh_availability(con, listing_ids):
-    """Active anywhere wins; then 'not seen recently'; else off market. Rows without membership stay as they are."""
     for listing_id in listing_ids:
-        con.execute('''UPDATE listings SET availability=CASE
-            WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id AND p.status='ACTIVE')
-              THEN 'ACTIVE'
-            WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id
-                         AND p.status='MISSING_UNCONFIRMED') THEN 'MISSING_UNCONFIRMED'
-            WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id) THEN 'OFF_MARKET'
-            ELSE availability END WHERE id=?''', (listing_id,))
+        con.execute(f'UPDATE listings SET availability={AVAILABILITY_CASE} WHERE id=?', (listing_id,))
 
 
 def identity_target(con, row):
@@ -255,12 +260,19 @@ def _m3_vehicle_identity(con):
 _m3_vehicle_identity.changes_data = True
 
 
+def _m4_profile_management(con):
+    add_column(con, 'search_profiles', 'budget_eur', 'INTEGER')
+    add_column(con, 'search_profiles', 'archived_at', 'TEXT')
+    add_column(con, 'search_profiles', 'scope_changed_at', 'TEXT')
+
+
 # (versie, functie). Functies met attribuut `changes_data = True` wijzigen bestaande rijen;
 # vóór de eerste daarvan wordt een back-up van het databasebestand gemaakt.
 MIGRATIONS = [
     (1, _m1_photos),
     (2, _m2_license_plate),
     (3, _m3_vehicle_identity),
+    (4, _m4_profile_management),
 ]
 
 

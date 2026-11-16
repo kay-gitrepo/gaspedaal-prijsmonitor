@@ -492,3 +492,48 @@ a.list-item:hover { text-decoration: none; background: var(--surface-2); }
     transition-duration: .01ms !important; scroll-behavior: auto !important;
   }
 }
+
+/* ============ Aanvullingen: schakelaar, menu, stappenlijst, zoekopdrachtkaart ============ */
+.switch {
+  display: inline-flex; align-items: center; gap: var(--s2); min-height: 40px; background: none; border: 0;
+  padding: 0 var(--s1); font-size: var(--fs-13); font-weight: 600; color: var(--text-2); border-radius: var(--r1);
+}
+.switch-track {
+  width: 36px; height: 20px; border-radius: 999px; background: var(--border-strong); position: relative;
+  transition: background-color .15s; flex: none;
+}
+.switch-track::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: var(--shadow-1); transition: transform .15s;
+}
+.switch[aria-checked="true"] .switch-track { background: var(--teal-strong); }
+.switch[aria-checked="true"] .switch-track::after { transform: translateX(16px); }
+.menu { position: relative; }
+.menu > summary { list-style: none; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu-list {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 200px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--r2); box-shadow: var(--shadow-2); padding: var(--s1);
+  display: flex; flex-direction: column;
+}
+.menu-item { justify-content: flex-start; width: 100%; color: var(--text); font-weight: 500; }
+.menu-item.btn-danger { color: var(--danger); border-color: transparent; }
+.profile-card .meta { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); color: var(--text-3); font-size: var(--fs-13); margin-top: var(--s3); }
+.profile-card .meta strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.profile-card .actions { display: flex; align-items: center; gap: var(--s2); }
+.checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.checklist li { display: flex; gap: var(--s4); align-items: center; padding: var(--s4) 0; border-bottom: 1px solid var(--border); }
+.checklist li:last-child { border-bottom: 0; }
+.checklist .step-dot {
+  width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--neutral-bg); color: var(--text-3); font-weight: 700;
+}
+.checklist .done .step-dot { background: var(--success-bg); color: var(--success); }
+.checklist .step-text { flex: 1; min-width: 0; }
+.checklist .step-text p { color: var(--text-3); font-size: var(--fs-13); }
+.topbar-context select { max-width: 320px; min-height: 36px; font-weight: 600; }
+@media (max-width: 760px) {
+  .topbar-context select { max-width: 100%; }
+  .profile-card .row-between { align-items: flex-start; }
+}
+.stack > .card + .card { margin-top: 0; }

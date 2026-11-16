@@ -231,3 +231,18 @@ export function bar(parts, label = '') {
   return `<svg class="bar" viewBox="0 0 100 6" preserveAspectRatio="none" role="img" aria-label="${esc(label)}">
     <rect class="track" x="0" y="0" width="100" height="6" rx="3"/>${rects}</svg>`;
 }
+
+/* ---------- Schakelaar en menu ---------- */
+export function toggle(text, checked, opt = {}) {
+  const data = Object.fromEntries(Object.entries(opt.data || {}).map(([k, v]) => [`data-${k}`, v]));
+  if (opt.action) data['data-action'] = opt.action;
+  return `<button type="button" class="switch" role="switch" aria-checked="${checked ? 'true' : 'false'}"${attrs(data)}>
+    <span class="switch-track" aria-hidden="true"></span><span>${esc(text)}</span></button>`;
+}
+
+/** Uitklapmenu met knoppen; items: [{text, icon, action, data, variant, href}]. */
+export function menu(label, items) {
+  const list = items.map(i => button(i.text, {...i, variant: i.variant || 'text', cls: 'menu-item'})).join('');
+  return `<details class="menu"><summary class="btn btn-s btn-icon" title="${esc(label)}">${icon('more')}
+    <span class="sr-only">${esc(label)}</span></summary><div class="menu-list">${list}</div></details>`;
+}
