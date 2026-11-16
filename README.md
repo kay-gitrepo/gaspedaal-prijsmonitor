@@ -1,6 +1,20 @@
 # OccasionIQ – Gaspedaal prijsmonitor en XC90 aankoopassistent
 
-**Status: lokale MVP v0.3.0, inclusief experimentele uitlezing van eigen Gaspedaal-zoeklinks, meer-aanbiederprijsregistratie en optionele detailtekstverrijking.** De backend, UI, Home Assistant-trigger, Gemini-analyse en JSON-import werken lokaal. Het exacte interne Gaspedaal-zoek-endpoint is **nog niet geïdentificeerd of live getest**. De API-adapter is daarom standaard uitgeschakeld. Zie [`docs/DIRECTE_GASPEDAAL_API.md`](docs/DIRECTE_GASPEDAAL_API.md) en de oorspronkelijke [`bouwspecificatie`](docs/BOUWSPECIFICATIE.md).
+**Status: v0.17.0.** Het verbeterplan ([`docs/VERBETERPLAN.md`](docs/VERBETERPLAN.md)) is uitgevoerd tot en met WP-13; WP-14 (meldingen via Home Assistant, shortlist vergelijken, dossier) wacht op akkoord. Het exacte interne Gaspedaal-zoek-endpoint is **nog niet geïdentificeerd of live getest**; de API-adapter staat daarom standaard uit. Zie ook [`docs/DIRECTE_GASPEDAAL_API.md`](docs/DIRECTE_GASPEDAAL_API.md) en de oorspronkelijke [`bouwspecificatie`](docs/BOUWSPECIFICATIE.md).
+
+## Nieuw sinds v0.5
+
+- **Eigen adres per scherm** (`#/aanbod`, `#/auto/<id>`, …), nieuw ontwerpsysteem, Nederlandse woordenlijst zonder interne codes.
+- **Zoekopdrachten beheren:** toevoegen in één stap, budget, pauzeren, archiveren, kiezen in de bovenbalk; gewijzigde filters leiden niet tot valse verdwijningen.
+- **Stabiele voertuigidentiteit** per bron, terugkeer van een auto als gebeurtenis, één onwaarschijnlijke prijs laat een controle niet meer mislukken.
+- **Mijn wensen per zoekopdracht:** zelf wensen toevoegen met zoekwoorden, lokale herkenning zonder AI, belang en indeling herrekenen direct.
+- **Match met onzekerheid:** "x % bevestigd · tot y % mogelijk", statuschip met reden, corrigeren met één klik, vragen aan de verkoper.
+- **Aanbodlijst en autopagina:** tabs, filters en sortering in het adres, prijsverloop als trapgrafiek, prijzen per aanbieder.
+- **Marktwaarde en onderhandelen:** vergelijkbare auto's in dezelfde zoekopdracht, kilometercorrectie, band P25–P75, openingsbod, streefprijs en grens zonder vast kortingspercentage, met argumenten.
+- **Marktoverzicht** dat de zeven marktvragen beantwoordt, met een prijsindex die samenstelling scheidt van echte prijsverandering.
+- **Controles en AI-beoordeling:** voortgang en actualiteit, wat er veranderde, herkomst per oordeel en herbeoordelen zonder controle.
+
+Alle bedragen zijn **vraagprijzen**; een verdwenen advertentie is geen bewijs van verkoop. Elke schatting toont de steekproefomvang.
 
 ## Nieuw in v0.3
 
