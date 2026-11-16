@@ -2,7 +2,7 @@
 
 No undocumented API endpoint is guessed; if the page does not contain complete
 stable IDs in embedded JSON, the result is incomplete or fails closed.
-Not yet validated against live raw Gaspedaal HTML.
+Gevalideerd tegen de live Next.js-pagina (nov 2026): advertenties staan in de `occasions`-stream.
 """
 from __future__ import annotations
 import html
@@ -47,10 +47,50 @@ def _documents(raw):
     total=int(total_match.group(1).replace('.','')) if total_match else None
     return p.jsons,total
 
+_FLIGHT=re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
+
+def _flight_occasions(raw):
+    """Advertenties uit de Next.js-streamdata (sleutel `occasions`) van een Gaspedaal-zoekpagina."""
+    parts=[]
+    for m in _FLIGHT.finditer(raw):
+        try:parts.append(json.loads(m.group(1)))
+        except ValueError:continue
+    text=''.join(parts)
+    idx=text.find('"occasions":[')
+    if idx<0:return []
+    try:data,_=json.JSONDecoder().raw_decode(text[idx+len('"occasions":'):])
+    except ValueError:return []
+    return data if isinstance(data,list) else []
+
+def _occasion_to_item(o):
+    car=o.get('autogegevens') or {}
+    alg=car.get('algemeen') or {}
+    hist=car.get('geschiedenis') or {}
+    seller=((o.get('aanbieder') or {}).get('aanbiedergegevens')) or {}
+    title=' '.join(str(x) for x in (alg.get('merknaam'),alg.get('modelnaam'),alg.get('uitvoering')) if x)
+    portals=[]
+    for p in o.get('portalen') or []:
+        click=p.get('klikUrl')
+        pid=str(click).rstrip('/').rsplit('/',1)[-1] if click else None
+        portals.append({'portaal_beschrijving':p.get('portaalBeschrijving'),'portaal_type':p.get('portaalType'),
+                        'vehicle_id':pid,'klik_url':click})
+    return {'ad_id':o.get('advertentieId'),'title':title,
+            'price':(o.get('prijs') or {}).get('totaalInclusiefBtw'),
+            'year':hist.get('bouwjaar'),'kilometers':hist.get('kilometerstand'),
+            'trim':alg.get('uitvoering'),
+            'seller':seller.get('naamsvermelding') or seller.get('plaatsnaam'),
+            'portals':portals}
+
 def parse_search_page(raw):
     if len(raw)>8_000_000:raise SourceError('HTML groter dan 8 MB')
     docs,total=_documents(raw)
     found={}
+    for o in _flight_occasions(raw):
+        if not isinstance(o,dict):continue
+        try:ad=normalized_ad(_occasion_to_item(o),{})
+        except (ValueError,SourceError):continue
+        found[ad.external_id]=ad
+    if found:return list(found.values()),total
     for raw_json in docs:
         raw_json=html.unescape(raw_json).strip()
         for prefix in ('window.__INITIAL_STATE__','window.__PRELOADED_STATE__'):

@@ -48,3 +48,20 @@ def test_no_stable_id_fails_closed(monkeypatch):
 def test_invalid_host_disallowed():
     with pytest.raises(ValueError):site.paged_url('https://www.gaspedaal.nl.evil.test/a',2)
     assert parse_qs(urlsplit(site.paged_url(SEARCH,2)).query)['page']==['2']
+
+
+def test_parse_nextjs_flight_occasions():
+    import json
+    occ=[{"advertentieId":1,"aanbieder":{"aanbiedergegevens":{"naamsvermelding":"","plaatsnaam":"Ede"}},
+          "autogegevens":{"algemeen":{"merknaam":"Volvo","modelnaam":"XC90","uitvoering":"T8"},
+                          "geschiedenis":{"bouwjaar":2019,"kilometerstand":100000}},
+          "prijs":{"totaalInclusiefBtw":38950},
+          "portalen":[{"klikUrl":"https://www.gaspedaal.nl/api/proxy/redirect/vehicle/42",
+                       "portaalBeschrijving":"AutoTrack","portaalType":"other"}]}]
+    payload=json.dumps('{"numberOfPages":1,"occasions":'+json.dumps(occ)+'}')
+    raw='<html><body>1 occasion gevonden<script>self.__next_f.push([1,'+payload+'])</script></body></html>'
+    ads,total=site.parse_search_page(raw)
+    assert total==1 and len(ads)==1
+    ad=ads[0]
+    assert (ad.external_id,ad.price_eur,ad.year,ad.kilometers,ad.title)==('1',38950,2019,100000,'Volvo XC90 T8')
+    assert ad.portals[0].site=='AutoTrack' and ad.portals[0].portal_id=='42'
