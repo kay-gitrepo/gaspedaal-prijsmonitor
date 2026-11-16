@@ -7,7 +7,11 @@ FIXTURE={
   'complete':True,
   'listings':[
     {'external_id':'xc90-1','title':'XC90 T8 Ultra','price_eur':74950,'year':2025,'kilometers':28000,
-     'trim':'Ultra','seller':'Autobedrijf A','description':'Elektrische trekhaak. 22 inch velgen. Pilot Assist'},
+     'trim':'Ultra','seller':'Autobedrijf A','description':'Elektrische trekhaak. 22 inch velgen. Pilot Assist',
+     'portals':[{'portal_id':'dealer-100','site':'Dealersite','kind':'dealer','price_eur':74950,
+                 'click_url':'https://api.gaspedaal.nl/redirect/vehicle/100'},
+                {'portal_id':'autotrack-200','site':'AutoTrack','kind':'portal','price_eur':74950,
+                 'source_url':'https://www.autotrack.nl/a/volvo/xc90/200'}]},
     {'external_id':'xc90-2','title':'XC90 T8 Ultra 2','price_eur':76950,'year':2025,'kilometers':32000,
      'trim':'Ultra','seller':'Autobedrijf B','description':'Geen trekhaak. 22 inch scherm.'},
   ]
@@ -61,6 +65,9 @@ def test_end_to_end_price_history_and_logs():
         listing=next(x for x in client.get('/api/v1/listings').json()['items'] if x['price_eur']==71950)
         detail=client.get(f'/api/v1/listings/{listing["id"]}').json()
         assert len(detail['history'])==3
+        assert len(detail['sources'])==2
+        assert {x['site'] for x in detail['sources']}=={'Dealersite','AutoTrack'}
+        assert all(len(x['history'])==3 for x in detail['sources'])
         assert any(e['event_type']=='PRICE_CHANGED' for e in detail['events'])
         assert client.get('/api/v1/export/observations.csv').status_code==200
 

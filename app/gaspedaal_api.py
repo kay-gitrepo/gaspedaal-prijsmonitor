@@ -13,7 +13,7 @@ import httpx
 from pydantic import ValidationError
 
 from app.config import settings
-from app.provider import Advertisement, Snapshot
+from app.provider import Advertisement, PortalOffer, Snapshot
 
 
 class SourceError(RuntimeError):
@@ -59,6 +59,30 @@ def euro_price(value):
     raise SourceError('Vraagprijs niet als eurobedrag herkenbaar')
 
 
+def normalize_portals(item: dict) -> list[PortalOffer]:
+    """Parse the offer list shown in the Gaspedaal intermediary popup."""
+    raw_sources = first(item, 'portals', 'sources', 'source_sites', 'advertisers') or []
+    if not isinstance(raw_sources, list):
+        return []
+    portals = []
+    for entry in raw_sources:
+        if not isinstance(entry, dict): continue
+        site=first(entry, 'portaal_beschrijving', 'site', 'site_name', 'name', 'label')
+        portal_id=first(entry,'occ_import_nr','vehicle_id','source_id','id')
+        click_url=first(entry,'klik_url','click_out_url','click_url','redirect_url')
+        source_url=first(entry,'source_url','sourceListingUrl','detail_url','listing_url')
+        if not site or portal_id is None: continue
+        value=first(entry,'prijs','price_eur','price')
+        try:
+            portals.append(PortalOffer(portal_id=str(portal_id),site=str(site),
+                kind=first(entry,'portaal_type','kind','type'),
+                price_eur=euro_price(value) if value is not None else None,
+                click_url=click_url,source_url=source_url))
+        except (ValueError,SourceError):
+            continue
+    return portals
+
+
 def normalized_ad(item: dict, field_map: dict[str, str]) -> Advertisement:
     def field(name, *candidates):
         if name in field_map:
@@ -68,17 +92,21 @@ def normalized_ad(item: dict, field_map: dict[str, str]) -> Advertisement:
     vehicle = {
         'external_id': field('external_id', 'ad_id', 'advertisementId', 'vehicle_id', 'vehicleId', 'id'),
         'title': field('title', 'title', 'name', 'headline', 'vehicle.title'),
-        'price_eur': euro_price(field('price_eur', 'price.totaal', 'price.total', 'price.amount', 'price', 'askingPrice', 'asking_price')),
+        'price_eur': euro_price(field('price_eur', 'price.totaal', 'price.total', 'price.amount', 'price', 'price_eur', 'askingPrice', 'asking_price')),
         'url': field('url', 'url', 'detailUrl', 'listing_url', 'click_out_url'),
         'year': field('year', 'year', 'constructionYear', 'vehicle.year'),
-        'kilometers': field('kilometers', 'kilometers', 'mileage', 'km', 'odometer'),
+        'kilometers': field('kilometers', 'kilometers', 'mileage_km', 'mileage', 'km', 'odometer'),
         'trim': field('trim', 'trim', 'version', 'execution'),
         'seller': field('seller', 'seller.name', 'sellerName', 'dealer.name'),
         'description': field('description', 'description', 'advertisementText', 'vehicle.description'),
+        'portals': normalize_portals(item),
+        'license_plate':field('license_plate','license_plate','registration','vehicle.license_plate'),
     }
     if vehicle['external_id'] is not None: vehicle['external_id'] = str(vehicle['external_id'])
     if isinstance(vehicle['description'], list): vehicle['description'] = '\n'.join(map(str, vehicle['description']))
     if vehicle['description'] is None: vehicle['description'] = ''
+    if not vehicle['url'] and vehicle['external_id']:
+        vehicle['url']='https://www.gaspedaal.nl/zoeken#'+vehicle['external_id']
     if vehicle['url'] and str(vehicle['url']).startswith('/'):
         vehicle['url'] = 'https://www.gaspedaal.nl' + vehicle['url']
     try:

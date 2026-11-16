@@ -1146,3 +1146,25 @@ Het project is pas **functioneel klaar** als een gebruiker:
 - Home Assistant — time pattern voor andere cadans: https://www.home-assistant.io/triggers/time_pattern/
 
 **Opmerking over actualiteit:** interne Gaspedaal-endpoints, API-toestemming, Home Assistant-appmetadata, Gemini-SDK-code en tarieven dienen tijdens de bouw opnieuw te worden geverifieerd. Dit document levert het contract en de acceptatiecriteria; het is geen claim dat een productieconnector voor Gaspedaal al is getest.
+
+---
+
+## Implementatienotitie v0.3 — Gaspedaal URL, aanbieders en dealeradvertentie
+
+De werkende MVP is uitgebreid met een bronadapter die direct een in de applicatie
+opgeslagen Gaspedaal-zoek-URL ophaalt, mits deze pagina ingebedde, gestructureerde
+advertenties met stabiele advertentie-ID's bevat. In tegenstelling tot een
+onbevestigd intern JSON-endpoint wordt hiervoor geen API-pad geraden. De huidige
+live pagina dient nog te worden gevalideerd; ontbrekende records of incomplete
+paginering leiden niet tot conclusies over verdwenen advertenties.
+
+Een auto heeft nu een één-op-veelrelatie met `listing_sources`, waarin afzonderlijke
+aanbieders uit de Gaspedaal-pop-up staan. Met `source_price_observations` wordt
+per aanbieder de vraagprijs per refresh bewaard. Gaspedaal's hoofdvraagprijs
+blijft onafhankelijk in `price_observations` staan. De eind-URL van aanbieders
+wordt getoond als link; het optioneel lezen van oorspronkelijke advertentietekst
+is beperkt tot expliciet toegestane hostnames (`ADVERTISER_DETAIL_HOSTS`),
+met `MAX_DETAIL_FETCHES_PER_RUN` als harde limiet. Het resultaat wordt per auto
+in `source_detail_attempts` vastgelegd. Tekstverrijking wordt vervolgens
+hergebruikt door de bestaande tokenzuinige Gemini-analyse. Zie
+`docs/ZOEKURL_AANBIEDERS_EN_DETAIL.md` voor de keten en live validatietests.

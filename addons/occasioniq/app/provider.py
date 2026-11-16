@@ -4,6 +4,25 @@ from urllib.parse import urlsplit
 from typing import Protocol
 from pydantic import BaseModel, Field, field_validator
 
+class PortalOffer(BaseModel):
+    """One Gaspedaal vehicle can have multiple advertiser pages."""
+    portal_id: str = Field(min_length=1, max_length=180)
+    site: str = Field(min_length=1, max_length=100)
+    kind: str | None = None
+    price_eur: int | None = Field(default=None, ge=1)
+    click_url: str | None = None
+    source_url: str | None = None
+
+    @field_validator('click_url', 'source_url')
+    @classmethod
+    def valid_portal_url(cls, value):
+        if value:
+            p=urlsplit(value)
+            if p.scheme!='https' or not p.hostname or p.username or p.password or p.port:
+                raise ValueError('Aanbiederslink moet HTTPS zijn')
+        return value
+
+
 class Advertisement(BaseModel):
     external_id: str = Field(min_length=1, max_length=180)
     title: str = Field(min_length=1, max_length=350)
@@ -14,6 +33,8 @@ class Advertisement(BaseModel):
     trim: str | None = None
     seller: str | None = None
     description: str = Field(default='', max_length=50000)
+    portals: list[PortalOffer] = Field(default_factory=list,max_length=50)
+    license_plate: str | None = Field(default=None,max_length=20)
 
     @field_validator('url')
     @classmethod
@@ -45,6 +66,9 @@ class FixtureProvider:
 def provider_for(profile):
     if profile['provider'] == 'fixture':
         return FixtureProvider()
+    if profile['provider'] == 'gaspedaal_site':
+        from app.gaspedaal_site import GaspedaalSiteProvider
+        return GaspedaalSiteProvider()
     if profile['provider'] == 'gaspedaal':
         from app.gaspedaal_api import GaspedaalApiProvider
         return GaspedaalApiProvider()

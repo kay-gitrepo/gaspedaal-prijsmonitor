@@ -19,6 +19,8 @@ class Settings:
     disappearance_days: int = int(os.getenv('DISAPPEARANCE_DAYS', '7'))
     retention_days: int = int(os.getenv('INTEGRATION_LOG_RETENTION_DAYS', '90'))
     data_source_approved: bool = os.getenv('DATA_SOURCE_APPROVED', 'false').lower() == 'true'
+    advertiser_detail_hosts: str = os.getenv('ADVERTISER_DETAIL_HOSTS', '')
+    max_detail_fetches_per_run: int = min(max(int(os.getenv('MAX_DETAIL_FETCHES_PER_RUN', '5')),0),50)
     gaspedaal_api_search_template: str = os.getenv('GASPEDAAL_API_SEARCH_TEMPLATE', '')
     gaspedaal_api_items_path: str = os.getenv('GASPEDAAL_API_ITEMS_PATH', 'data.results')
     gaspedaal_api_fields_json: str = os.getenv('GASPEDAAL_API_FIELDS_JSON', '{}')

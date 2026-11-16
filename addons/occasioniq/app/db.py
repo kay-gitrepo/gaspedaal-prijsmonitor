@@ -72,6 +72,26 @@ CREATE TABLE IF NOT EXISTS price_observations (
  UNIQUE(run_id,profile_id,listing_id)
 );
 CREATE INDEX IF NOT EXISTS idx_observations_listing ON price_observations(listing_id,observed_at);
+CREATE TABLE IF NOT EXISTS listing_sources (
+ listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+ portal_id TEXT NOT NULL, site TEXT NOT NULL, kind TEXT,
+ click_url TEXT, source_url TEXT, price_eur INTEGER,
+ first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+ PRIMARY KEY(listing_id,portal_id)
+);
+CREATE TABLE IF NOT EXISTS source_price_observations (
+ run_id TEXT NOT NULL REFERENCES refresh_runs(id),
+ listing_id TEXT NOT NULL REFERENCES listings(id),
+ portal_id TEXT NOT NULL, site TEXT NOT NULL,
+ price_eur INTEGER NOT NULL, observed_at TEXT NOT NULL,
+ PRIMARY KEY(run_id,listing_id,portal_id)
+);
+CREATE TABLE IF NOT EXISTS source_detail_attempts (
+ id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES refresh_runs(id),
+ listing_id TEXT NOT NULL REFERENCES listings(id), portal_id TEXT,
+ source_url TEXT, status TEXT NOT NULL, text_length INTEGER,
+ error TEXT, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS listing_events (
  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES refresh_runs(id),
  listing_id TEXT NOT NULL REFERENCES listings(id), event_type TEXT NOT NULL,

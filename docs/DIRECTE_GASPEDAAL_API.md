@@ -1,3 +1,5 @@
+> Update v0.3: rechtstreeks een Gaspedaal-zoeklink lezen via experimentele HTML-parser en meerdere aanbieders per auto volgen is toegevoegd. Zie [ZOEKURL_AANBIEDERS_EN_DETAIL.md](ZOEKURL_AANBIEDERS_EN_DETAIL.md). Deze handleiding gaat specifiek over de alternatieve JSON-API-adapter.
+
 # Directe Gaspedaal-API: technische integratiestappen
 
 **Status:** configureerbare adapter gebouwd en offline getest; het exacte browserzoek-endpoint is nog niet geïdentificeerd of tegen de live site getest. Er staat **bewust geen fictieve endpoint-URL** in de code.

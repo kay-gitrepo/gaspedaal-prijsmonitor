@@ -1,6 +1,14 @@
 # OccasionIQ – Gaspedaal prijsmonitor en XC90 aankoopassistent
 
-**Status: lokale MVP v0.2.0, inclusief configureerbare directe Gaspedaal JSON-API-adapter.** De backend, UI, Home Assistant-trigger, Gemini-analyse en JSON-import werken lokaal. Het exacte interne Gaspedaal-zoek-endpoint is **nog niet geïdentificeerd of live getest**. De API-adapter is daarom standaard uitgeschakeld. Zie [`docs/DIRECTE_GASPEDAAL_API.md`](docs/DIRECTE_GASPEDAAL_API.md) en de oorspronkelijke [`bouwspecificatie`](docs/BOUWSPECIFICATIE.md).
+**Status: lokale MVP v0.3.0, inclusief experimentele uitlezing van eigen Gaspedaal-zoeklinks, meer-aanbiederprijsregistratie en optionele detailtekstverrijking.** De backend, UI, Home Assistant-trigger, Gemini-analyse en JSON-import werken lokaal. Het exacte interne Gaspedaal-zoek-endpoint is **nog niet geïdentificeerd of live getest**. De API-adapter is daarom standaard uitgeschakeld. Zie [`docs/DIRECTE_GASPEDAAL_API.md`](docs/DIRECTE_GASPEDAAL_API.md) en de oorspronkelijke [`bouwspecificatie`](docs/BOUWSPECIFICATIE.md).
+
+## Nieuw in v0.3
+
+- **Zelf een Gaspedaal-URL plakken:** een nieuwe experimentele `gaspedaal_site`-adapter kan ingesloten gestructureerde advertentiegegevens uit de zoekpagina lezen en paginering afhandelen. Vereist `DATA_SOURCE_APPROVED=true`. **Nog niet live gevalideerd op Gaspedaal.**
+- **Aanbieders-pop-up als tweede informatielaag:** elk voertuig kan meerdere `portals` bevatten. Hun namen, doorkliklinks, prijzen en prijsobservaties verschijnen in het autodetail.
+- **Oorspronkelijke advertentie als derde informatielaag:** bij expliciet opgegeven hostnames kan de applicatie beperkt een redirect naar de oorspronkelijke dealeradvertentie volgen en tekst gebruiken voor Gemini. De verwerkingsuitkomst wordt in het uitvoeringslog en autodetail vastgelegd.
+- **Fail closed:** onvolledige paginering of ontbrekende stabiele advertentie-ID's leidt niet tot onterechte verkoopmeldingen.
+- Zie [`docs/ZOEKURL_AANBIEDERS_EN_DETAIL.md`](docs/ZOEKURL_AANBIEDERS_EN_DETAIL.md) voor volledige configuratie, voorbeelden en validatiestappen.
 
 ## Wat werkt al?
 
@@ -33,9 +41,9 @@ Open `http://<IP-van-je-server>:8099` en log in met `UI_PASSWORD`.
 
 Zonder `GEMINI_API_KEY` blijft lokale tekstherkenning functioneren; in het integratielog staat `SKIPPED_NO_KEY`. Gemini-aanroepen zijn **niet end-to-end getest** met jouw betaalde Google-account omdat er geen API-sleutel is gedeeld. Een model-ID moet actief zijn voor jouw project; wijzig `GEMINI_MODEL` indien nodig. De standaard is `gemini-3.5-flash-lite`.
 
-## Directe Gaspedaal-API activeren
+## Directe Gaspedaal-zoek-URL en JSON-API activeren
 
-De adapter is gebouwd en offline getest, maar het daadwerkelijke zoek-endpoint en de mapping zijn onbekend. Identificeer dit eerst via het browsernetwerk en configureer `GASPEDAAL_API_SEARCH_TEMPLATE`, `GASPEDAAL_API_ITEMS_PATH` en eventueel `GASPEDAAL_API_FIELDS_JSON` in `.env` (voor Home Assistant OS: in de appopties). Zet `DATA_SOURCE_APPROVED=true` als je de bron wilt activeren. Meer uitleg en valideringsstappen: [`docs/DIRECTE_GASPEDAAL_API.md`](docs/DIRECTE_GASPEDAAL_API.md).
+De directe HTML-adapter is gebouwd en offline getest, maar moet nog tegen de echte zoekpagina worden gevalideerd. Daarnaast is de generieke JSON-API-adapter beschikbaar; het daadwerkelijke JSON-zoekendpoint en de mapping zijn onbekend. Identificeer dit eerst via het browsernetwerk en configureer `GASPEDAAL_API_SEARCH_TEMPLATE`, `GASPEDAAL_API_ITEMS_PATH` en eventueel `GASPEDAAL_API_FIELDS_JSON` in `.env` (voor Home Assistant OS: in de appopties). Zet `DATA_SOURCE_APPROVED=true` als je de bron wilt activeren. Meer uitleg en valideringsstappen: [`docs/DIRECTE_GASPEDAAL_API.md`](docs/DIRECTE_GASPEDAAL_API.md).
 
 **Live automatische Gaspedaal-refresh is nog niet bewezen werkend.** De JSON-import blijft beschikbaar als volledig werkende testmodus.
 
@@ -89,9 +97,9 @@ node --check app/static/app.js
 
 ## Wat ontbreekt nog voor productiegebruik?
 
-1. **Live Gaspedaal-bron valideren:** daadwerkelijke browserzoek-URL, HTTP-methode, velden, filters en paginering controleren en de bestaande `GaspedaalApiProvider` op een echte reactie testen. Eventueel een detail-endpoint toevoegen.
+1. **Live Gaspedaal-bron valideren:** bevestig dat de huidige Gaspedaal-HTML ingesloten advertenties met stabiele ID’s bevat. Zo niet: inspecteer het browsernetwerk en implementeer op basis van de werkelijke requests een passende bronadapter. Test paginering en portaalpop-up met echte data.
 2. **Echte Gemini-call testen** met jouw sleutel en gekozen model, inclusief quota- en kostengrenzen.
-3. Geavanceerde herplaatsings-/kentekendeduplicatie, meerdere advertentieportalen per auto en RDW-validatie.
+3. Geavanceerde herplaatsings-/kentekendeduplicatie en RDW-validatie. Meerdere advertentieportalen per auto worden inmiddels apart gevolgd.
 4. Statistisch verbeterd waarderingsmodel, prijsniveau op termijn en onderhandelingsadvies met voldoende vergelijkbare voertuigen.
 5. HA OS add-on in een echte Supervisor-installatie valideren, backup/restore en security-hardening testen.
 

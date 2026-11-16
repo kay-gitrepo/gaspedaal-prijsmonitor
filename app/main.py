@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     yield
     stop_worker()
 
-app = FastAPI(title='Gaspedaal Prijsmonitor',version='0.2.0',lifespan=lifespan,docs_url=None,redoc_url=None)
+app = FastAPI(title='Gaspedaal Prijsmonitor',version='0.3.0',lifespan=lifespan,docs_url=None,redoc_url=None)
 app.mount('/static', StaticFiles(directory=ROOT/'static'), name='static')
 
 @app.middleware('http')
@@ -114,7 +114,7 @@ def connection():
 def index():return FileResponse(ROOT/'static'/'index.html')
 
 @app.get('/health')
-def health():return {'status':'ok','version':'0.2.0','live_gaspedaal_configured':bool(settings.data_source_approved and settings.gaspedaal_api_search_template)}
+def health():return {'status':'ok','version':'0.3.0','live_gaspedaal_configured':bool(settings.data_source_approved)}
 
 @app.get('/api/v1/session')
 def session(request:Request):
@@ -138,22 +138,24 @@ def logout(response:Response,_=Depends(require_csrf)):
 @app.get('/api/v1/profiles')
 def profiles(_=Depends(require_ui),con=Depends(connection)):
     rows=[dict(x) for x in con.execute('SELECT id,title,search_url,provider,enabled,created_at,updated_at,fixture_payload IS NOT NULL as has_snapshot FROM search_profiles ORDER BY title')]
-    return {'items':rows, 'gaspedaal_api_configured':bool(settings.data_source_approved and settings.gaspedaal_api_search_template)}
+    return {'items':rows, 'gaspedaal_api_configured':bool(settings.data_source_approved and settings.gaspedaal_api_search_template), 'gaspedaal_site_available':settings.data_source_approved}
 
 @app.post('/api/v1/profiles',status_code=201)
 def create_profile(body:ProfileBody,_=Depends(require_csrf),con=Depends(connection)):
     try:url=validate_search_url(body.search_url)
     except ValueError as exc:raise HTTPException(status_code=422,detail=str(exc))
     pid=uid('sp')
-    provider='gaspedaal' if settings.data_source_approved and settings.gaspedaal_api_search_template else 'fixture'
+    provider='gaspedaal_site' if settings.data_source_approved else 'fixture'
     con.execute('INSERT INTO search_profiles(id,title,search_url,provider,created_at,updated_at) VALUES(?,?,?,?,?,?)',
                 (pid,body.title,url,provider,now(),now()))
-    return {'id':pid,'provider':provider,'source_status':'CONFIGURED_API' if provider=='gaspedaal' else 'MANUAL_IMPORT'}
+    return {'id':pid,'provider':provider,'source_status':'DIRECT_SEARCH_URL' if provider=='gaspedaal_site' else 'MANUAL_IMPORT'}
 
 @app.put('/api/v1/profiles/{profile_id}/source')
 def change_profile_source(profile_id:str,body:SourceBody,_=Depends(require_csrf),con=Depends(connection)):
-    if body.provider not in ('fixture','gaspedaal'):
+    if body.provider not in ('fixture','gaspedaal','gaspedaal_site'):
         raise HTTPException(422,'Onbekende gegevensbron')
+    if body.provider=='gaspedaal_site' and not settings.data_source_approved:
+        raise HTTPException(422,'Activeer DATA_SOURCE_APPROVED voor directe Gaspedaal URL-uitlezing')
     if body.provider=='gaspedaal' and not (settings.data_source_approved and settings.gaspedaal_api_search_template):
         raise HTTPException(422,'Gaspedaal API is nog niet geconfigureerd via de serverinstellingen')
     if not con.execute('SELECT 1 FROM search_profiles WHERE id=?',(profile_id,)).fetchone():
@@ -277,8 +279,8 @@ def dashboard(_=Depends(require_ui),con=Depends(connection)):
             'matches':sum(r['eligibility']=='MATCH' for r in rows),
             'average_score':round(sum(r['score_total'] for r in rows)/len(rows),1) if rows else 0,
             'price_trend':trend,
-            'source_status':'GASPEDAAL_API_CONFIGURED' if settings.data_source_approved and settings.gaspedaal_api_search_template else 'HANDMATIGE_IMPORT',
-            'limitations':['De directe Gaspedaal API moet nog met een echte browsersessie en live resultaten worden gevalideerd.' if settings.gaspedaal_api_search_template else 'Er is nog geen geverifieerd Gaspedaal API-endpoint ingesteld; monitor verwerkt geïmporteerde snapshots.',
+            'source_status':'GASPEDAAL_SEARCH_URL_EXPERIMENTAL' if settings.data_source_approved else 'HANDMATIGE_IMPORT',
+            'limitations':['Uitlezing van Gaspedaal-HTML is experimenteel en moet op de eigen server worden gevalideerd.' if settings.data_source_approved else 'Directe Gaspedaal-zoeklink is nog niet ingeschakeld; alleen geïmporteerde snapshots worden verwerkt.',
                            'Verdwenen advertenties zijn geen bewezen verkopen; getoonde prijzen zijn vraagprijzen.']}
 
 @app.get('/api/v1/listings')
@@ -297,6 +299,10 @@ def listing_detail(listing_id:str,_=Depends(require_ui),con=Depends(connection))
     row=con.execute('SELECT * FROM listings WHERE id=?',(listing_id,)).fetchone()
     if not row:raise HTTPException(404,'Auto niet gevonden')
     listing=dict(row)
+    listing['sources']=[dict(r) for r in con.execute('''SELECT * FROM listing_sources WHERE listing_id=? ORDER BY site''',(listing_id,))]
+    for source in listing['sources']:
+        source['history']=[dict(r) for r in con.execute('''SELECT observed_at,price_eur,run_id FROM source_price_observations WHERE listing_id=? AND portal_id=? ORDER BY observed_at''',(listing_id,source['portal_id']))]
+    listing['detail_fetches']=[dict(r) for r in con.execute('''SELECT portal_id,source_url,status,text_length,error,created_at FROM source_detail_attempts WHERE listing_id=? ORDER BY created_at DESC LIMIT 15''',(listing_id,))]
     listing['history']=[dict(r) for r in con.execute('SELECT observed_at,price_eur,run_id FROM price_observations WHERE listing_id=? ORDER BY observed_at',(listing_id,))]
     listing['events']=[dict(r) for r in con.execute('SELECT * FROM listing_events WHERE listing_id=? ORDER BY created_at DESC',(listing_id,))]
     listing['claims']=[dict(r) for r in con.execute('''SELECT c.*,cr.label,cr.group_name,cr.weight FROM claims c JOIN criteria cr ON cr.key=c.criterion_key

@@ -11,6 +11,7 @@ from app.db import connect, dumps, log_event, now, uid
 from app.extraction import cleaned_text, local_claims, sha256 as text_hash
 from app.gemini import classify, build_payload, PROMPT_VERSION
 from app.provider import provider_for
+from app.source_details import fetch_advertiser_text
 from app.scoring import calculate
 
 logger = logging.getLogger(__name__)
@@ -109,8 +110,27 @@ def scan_profile(con,run_id,profile,criteria):
         if not (settings.min_price <= ad.price_eur <= settings.max_price):
             raise ValueError(f'Ongeldige/onwaarschijnlijke vraagprijs: {ad.external_id}')
     stats={'found':count,'new':0,'price_changes':0,'missing_new':0,'off_market_new':0,'observations':0,
-           'gemini_calls':0,'gemini_errors':0,'cache_hits':0, 'provider_complete':snapshot.complete,
+           'gemini_calls':0,'gemini_errors':0,'cache_hits':0, 'portals':0,'portal_price_changes':0,'provider_complete':snapshot.complete,
            'provider_metadata':snapshot.metadata}
+    # A bounded optional detail pass, outside the database write transaction.
+    details={}
+    if settings.advertiser_detail_hosts.strip():
+        used=con.execute('SELECT COUNT(*) FROM source_detail_attempts WHERE run_id=?',(run_id,)).fetchone()[0]
+        remaining=max(0,settings.max_detail_fetches_per_run-used)
+        for ad in snapshot.listings:
+            if not remaining:break
+            if ad.description.strip() or not ad.portals:continue
+            old=con.execute('SELECT description FROM listings WHERE external_id=?',
+                           (f'{profile["provider"]}:{ad.external_id}',)).fetchone()
+            if old and old['description'].strip():continue
+            try:detail=fetch_advertiser_text(ad.portals)
+            except Exception as exc:
+                logger.warning('Bronadvertentie niet leesbaar: %s',type(exc).__name__)
+                continue
+            if detail.status=='NO_ALLOWED_SOURCE':continue
+            details[ad.external_id]=detail
+            if detail.status=='SUCCESS':ad.description=detail.text
+            remaining-=1
     seen=set()
     candidate_ids=set()
     # All observations and missing transitions are committed together for each profile.
@@ -132,7 +152,7 @@ def scan_profile(con,run_id,profile,criteria):
                 con.execute('''UPDATE listings SET title=?,url=?,year=?,kilometers=?,trim=?,seller=?,price_eur=?,
                    description=?,text_hash=?,last_seen=?,updated_at=?,availability='ACTIVE' WHERE id=?''',
                    (ad.title,ad.url,ad.year,ad.kilometers,ad.trim,ad.seller,ad.price_eur,
-                    ad.description,content_hash,now(),now(),listing_id))
+                    ad.description or previous['description'],content_hash if ad.description or not previous['description'] else previous['text_hash'],now(),now(),listing_id))
             else:
                 stats['new']+=1
                 candidate_ids.add(listing_id)
@@ -142,6 +162,39 @@ def scan_profile(con,run_id,profile,criteria):
                    ad.description,content_hash,now(),now(),now()))
                 con.execute('INSERT INTO listing_events(run_id,listing_id,event_type,new_price,created_at) VALUES(?,?,?,?,?)',
                             (run_id,listing_id,'FIRST_SEEN',ad.price_eur,now()))
+            # One car, multiple advertisers; retain per-portal price measurements.
+            for offer in ad.portals:
+                old_price=con.execute('SELECT price_eur FROM listing_sources WHERE listing_id=? AND portal_id=?',
+                                      (listing_id,offer.portal_id)).fetchone()
+                if old_price and old_price['price_eur'] is not None and offer.price_eur is not None and old_price['price_eur']!=offer.price_eur:
+                    stats['portal_price_changes']+=1
+                    log_event(con,run_id,'PORTAL','INFO','Prijs bij aanbieder gewijzigd',{
+                        'listing_id':listing_id,'site':offer.site,'from':old_price['price_eur'],'to':offer.price_eur})
+                con.execute('''INSERT INTO listing_sources(listing_id,portal_id,site,kind,click_url,source_url,price_eur,first_seen,last_seen)
+                    VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(listing_id,portal_id) DO UPDATE SET
+                    site=excluded.site,kind=excluded.kind,
+                    click_url=COALESCE(excluded.click_url,listing_sources.click_url),
+                    source_url=COALESCE(excluded.source_url,listing_sources.source_url),
+                    price_eur=COALESCE(excluded.price_eur,listing_sources.price_eur),
+                    last_seen=excluded.last_seen''',
+                    (listing_id,offer.portal_id,offer.site,offer.kind,offer.click_url,
+                     offer.source_url,offer.price_eur,now(),now()))
+                if offer.price_eur is not None:
+                    con.execute('''INSERT OR IGNORE INTO source_price_observations
+                        (run_id,listing_id,portal_id,site,price_eur,observed_at)
+                        VALUES(?,?,?,?,?,?)''',
+                        (run_id,listing_id,offer.portal_id,offer.site,offer.price_eur,now()))
+                stats['portals']+=1
+            detail=details.get(ad.external_id)
+            if detail:
+                con.execute('''INSERT INTO source_detail_attempts
+                    (id,run_id,listing_id,portal_id,source_url,status,text_length,error,created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?)''',
+                    (uid('sd'),run_id,listing_id,detail.portal_id,detail.source_url,detail.status,
+                     len(detail.text),detail.error,now()))
+                log_event(con,run_id,'SOURCE_DETAIL','INFO' if detail.status=='SUCCESS' else 'WARN',
+                    'Advertentietekst opgehaald' if detail.status=='SUCCESS' else 'Advertentietekst niet opgehaald',
+                    {'listing_id':listing_id,'status':detail.status,'portal_id':detail.portal_id})
             con.execute('''INSERT INTO profile_listings(profile_id,listing_id,last_seen,missing_since,missing_checks,status)
              VALUES(?,?,?,NULL,0,'ACTIVE') ON CONFLICT(profile_id,listing_id) DO UPDATE SET
              last_seen=excluded.last_seen,missing_since=NULL,missing_checks=0,status='ACTIVE' ''',
@@ -210,7 +263,7 @@ def execute_run(run_id):
         criteria=get_criteria(con)
         totals={'profiles':len(profiles),'profiles_ok':0,'profiles_partial':0,'profiles_failed':0,
                 'found':0,'new':0,'price_changes':0,'missing_new':0,'off_market_new':0,
-                'observations':0,'gemini_calls':0,'gemini_errors':0,'cache_hits':0}
+                'observations':0,'gemini_calls':0,'gemini_errors':0,'cache_hits':0,'portals':0,'portal_price_changes':0}
         errors=[]
         for profile in profiles:
             log_event(con,run_id,'PROFILE','INFO',f'Scan gestart: {profile["title"]}')
