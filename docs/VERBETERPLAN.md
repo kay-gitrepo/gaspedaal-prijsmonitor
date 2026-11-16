@@ -126,7 +126,7 @@ Werk van boven naar beneden. Werk deze tabel bij na elk WP (`☐` → `☑`, met
 | 09 | Controles: voortgang, actualiteit, wat is er veranderd | F15 | Sonnet | ☑ 17-11-2026 · 0.13.0 |
 | 10 | Marktwaarde en onderhandelingspositie | F9 F10 | **Opus** | ☑ 17-11-2026 · 0.14.0 |
 | 11 | Marktoverzicht dat de zeven vragen beantwoordt | F11 F12 B6 U7 | **Opus** (rekenwerk), Sonnet (UI) | ☑ 17-11-2026 · 0.15.0 |
-| 12 | Inzicht in de AI-beoordeling | F16 | Sonnet | ☐ |
+| 12 | Inzicht in de AI-beoordeling | F16 | Sonnet | ☑ 17-11-2026 · 0.16.0 |
 | 13 | Wensen per zoekopdracht | F13 | **Opus** | ☐ |
 | 14 | Optioneel, eerst bevestigen: meldingen via Home Assistant, shortlist vergelijken, dossier | F17, doel §9 | Sonnet | ☐ |
 

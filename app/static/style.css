@@ -723,3 +723,5 @@ td.cell-main { min-width: 230px; }
 @media (max-width: 760px) { .page-head .periods { align-self: flex-start; } }
 
 .facts dd.small { font-size: var(--fs-12); font-weight: 400; }
+.reassess { margin-top: var(--s3); }
+.json.assessed { max-height: 280px; }

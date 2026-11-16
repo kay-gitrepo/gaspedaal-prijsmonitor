@@ -23,7 +23,7 @@ from dev_server import ROOT, apply_dev_env  # noqa: E402
 apply_dev_env()
 
 from app.config import settings  # noqa: E402
-from app.db import connect, dumps, init_db, uid  # noqa: E402
+from app.db import connect, dumps, init_db, insert_default_criteria, uid  # noqa: E402
 from app.extraction import cleaned_text, sha256  # noqa: E402
 from app.worker import analyze_listing, external_key, get_criteria  # noqa: E402
 
@@ -36,7 +36,7 @@ PROFILES = [
      'url': 'https://www.gaspedaal.nl/volvo/xc90?bmin=2025&kmmin=45000',
      'accepts': lambda ad: (ad.get('kilometers') or 0) >= 45000},
 ]
-TABLES = ['claims', 'integration_requests', 'negotiation_notes', 'listing_events', 'source_detail_attempts',
+TABLES = ['claims', 'criterion_suggestions', 'integration_requests', 'negotiation_notes', 'listing_events', 'source_detail_attempts',
           'source_price_observations', 'listing_sources', 'price_observations', 'profile_listings', 'run_events',
           'trigger_attempts', 'listings', 'refresh_runs', 'search_profiles']
 
@@ -80,6 +80,8 @@ def price_on(plan, day):
 def reset(con):
     for table in TABLES:
         con.execute(f'DELETE FROM {table}')
+    con.execute('DELETE FROM criteria')
+    insert_default_criteria(con)
 
 
 def main():

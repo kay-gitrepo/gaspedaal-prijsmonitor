@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.db import connect
 from app.main import app
+from test_api import wait_run
 from test_profiles import login, new_profile, run
 
 
@@ -26,7 +27,10 @@ def test_manual_text_survives_later_checks():
         r = client.post(f'/api/v1/listings/{car["id"]}/description', headers=headers,
                         json={'text': 'Elektrisch uitklapbare trekhaak en 22 inch velgen.'})
         assert r.status_code == 200 and r.json()['description_source'] == 'MANUAL'
-        assert listing('import:txt-1')['analyzed_hash'] is None
+        # De geplakte tekst wordt direct opnieuw beoordeeld (herbeoordeling zonder controle).
+        assert wait_run(client, r.json()['run_id'])['state'] == 'COMPLETE'
+        claims = {c['criterion_key']: c for c in client.get(f'/api/v1/listings/{car["id"]}').json()['claims']}
+        assert claims['towbar']['status'] == 'PRESENT' and claims['towbar']['source'] == 'LOCAL_RULE'
         # Een latere controle met (andere) brontekst overschrijft de handmatige tekst niet,
         # en de herbeoordeling gebruikt die tekst.
         run(client, headers, pid, [{'external_id': 'txt-1', 'title': 'XC90 tekst', 'price_eur': 69000,

@@ -9,6 +9,7 @@ import {equipmentActions, equipmentHtml, openQuestions, questionsHtml} from '../
 import {lastListHash} from '../router.js';
 import {inView, priceChange} from './aanbod.js';
 import {negotiationHtml, negotiationSubmits} from '../negotiation.js';
+import {follow} from '../refresh.js';
 
 export function skeleton() {
   return '<div class="skeleton sk-title"></div><div class="skeleton sk-text"></div>'
@@ -192,7 +193,7 @@ function page(x, v) {
       {sub: `${fmt(x.observations)} metingen sinds ${datum(x.first_seen)}`})}
       ${card('Prijswijzigingen', changesTable(x))}${card('Prijzen per aanbieder', providersTable(x))}</section>
     <section id="uitrusting" class="car-section">${textCard(x)}
-      ${card('Uitrusting', equipmentHtml(x.id, claims), {sub: `${fmt(x.score_total)}% bevestigd · tot `
+      ${card('Uitrusting', equipmentHtml(x.id, claims, {assessedText: x.assessed_text}), {sub: `${fmt(x.score_total)}% bevestigd · tot `
         + `${fmt(x.score_potential)}% mogelijk · bewijs voor ${fmt(x.evidence_coverage)}% van het gewicht`})}
       ${card('Vragen aan de verkoper', questionsHtml(x, claims), {id: 'vragen',
         sub: openQuestions(claims).length ? 'Eén vraag per onzekere wens, must-haves eerst' : ''})}</section>
@@ -237,9 +238,11 @@ export const actions = {
     await reload(el.dataset.id);
   },
   async 'clear-description'(el) {
-    await api('/listings/' + encodeURIComponent(el.dataset.id) + '/description', {method: 'POST', body: {text: ''}});
+    const r = await api('/listings/' + encodeURIComponent(el.dataset.id) + '/description', {method: 'POST',
+      body: {text: ''}});
     toast('Eigen tekst verwijderd');
     await reload(el.dataset.id);
+    if (r.run_id) await follow(r.run_id);
   },
 };
 
@@ -250,9 +253,10 @@ export const submits = {
   ...negotiationSubmits(reload),
   async description(form) {
     const text = new FormData(form).get('text') || '';
-    await api('/listings/' + encodeURIComponent(form.dataset.id) + '/description', {method: 'POST', body: {text}});
-    toast('Tekst opgeslagen. De uitrusting wordt bij de volgende controle opnieuw beoordeeld.');
+    const r = await api('/listings/' + encodeURIComponent(form.dataset.id) + '/description', {method: 'POST', body: {text}});
+    toast('Tekst opgeslagen. De uitrusting wordt nu opnieuw beoordeeld.', 'info');
     await reload(form.dataset.id);
+    if (r.run_id) await follow(r.run_id);
   },
   async note(form) {
     const d = Object.fromEntries(new FormData(form));

@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.scoring import calculate
+from test_api import wait_run
 from test_profiles import login, new_profile, run
 
 CRITERIA = [
@@ -55,8 +56,9 @@ def test_undo_manual_review_returns_to_automatic():
         assert detail['status_reason']['absent'] == ['Trekhaak']
         back = client.delete(f"/api/v1/listings/{car['id']}/review/towbar", headers=headers)
         assert back.status_code == 200 and back.json()['score']['eligibility'] != 'REJECTED'
+        assert wait_run(client, back.json()['run_id'])['state'] == 'COMPLETE'
         detail = client.get(f"/api/v1/listings/{car['id']}").json()
         towbar = next(c for c in detail['claims'] if c['criterion_key'] == 'towbar')
-        assert towbar['status'] == 'PRESENT' and towbar['source'] != 'MANUAL_OVERRIDE'
-        assert detail['analyzed_hash'] is None
+        assert towbar['status'] == 'PRESENT' and towbar['source'] == 'LOCAL_RULE' and towbar['integration_id']
+        assert detail['analyzed_hash']
         assert client.delete(f"/api/v1/listings/{car['id']}/review/towbar", headers=headers).status_code == 404

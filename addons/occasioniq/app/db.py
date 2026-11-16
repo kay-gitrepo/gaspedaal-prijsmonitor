@@ -326,6 +326,18 @@ def _m8_own_amounts(con):
         add_column(con, 'listings', name, 'INTEGER')
 
 
+def _m9_claim_provenance(con):
+    """Herkomst per oordeel (WP-12): LOCAL_RULE, GEMINI, NOT_MENTIONED of MANUAL_OVERRIDE, met verwijzing naar het log."""
+    add_column(con, 'claims', 'integration_id', 'TEXT')
+    con.execute("""UPDATE claims SET source=CASE
+        WHEN reason='Lokale expliciete advertentievermelding' THEN 'LOCAL_RULE'
+        WHEN reason='Niet aangetoond in toegestane advertentietekst' THEN 'NOT_MENTIONED'
+        ELSE 'GEMINI' END WHERE source='AD_TEXT'""")
+
+
+_m9_claim_provenance.changes_data = True
+
+
 # (versie, functie). Functies met attribuut `changes_data = True` wijzigen bestaande rijen;
 # vóór de eerste daarvan wordt een back-up van het databasebestand gemaakt.
 MIGRATIONS = [
@@ -337,6 +349,7 @@ MIGRATIONS = [
     (6, _m6_criteria_terms),
     (7, _m7_score_uncertainty),
     (8, _m8_own_amounts),
+    (9, _m9_claim_provenance),
 ]
 
 
@@ -388,17 +401,21 @@ def migrate(con, migrations=None, backup=True):
     return applied
 
 
+def insert_default_criteria(con):
+    for key, label, group, weight, description, synonyms in DEFAULT_CRITERIA:
+        con.execute('''INSERT INTO criteria(key,label,group_name,weight,description,synonyms_json,enabled,
+                       updated_at,match_terms_json) VALUES (?,?,?,?,?,?,?,?,?)''',
+                    (key, label, group, weight, description, dumps(synonyms), 1, now(),
+                     dumps(DEFAULT_MATCH_TERMS.get(key, []))))
+
+
 def init_db():
     con = connect()
     try:
         con.executescript(SCHEMA)
         migrate(con)
         if not con.execute('SELECT 1 FROM criteria LIMIT 1').fetchone():
-            for key, label, group, weight, description, synonyms in DEFAULT_CRITERIA:
-                con.execute('''INSERT INTO criteria(key,label,group_name,weight,description,synonyms_json,enabled,
-                               updated_at,match_terms_json) VALUES (?,?,?,?,?,?,?,?,?)''',
-                            (key, label, group, weight, description, dumps(synonyms), 1, now(),
-                             dumps(DEFAULT_MATCH_TERMS.get(key, []))))
+            insert_default_criteria(con)
     finally:
         con.close()
 

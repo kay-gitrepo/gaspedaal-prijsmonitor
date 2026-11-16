@@ -385,7 +385,8 @@ def enqueue_refresh(request:Request,body:RefreshBody,response:Response,
             if prior['request_hash']!=payload_hash:
                 raise HTTPException(409,detail={'code':'IDEMPOTENCY_KEY_REUSED'})
             return {'run_id':prior['id'],'status':prior['state'],'already_accepted':True}
-        active=con.execute("SELECT * FROM refresh_runs WHERE state IN ('QUEUED','RUNNING') LIMIT 1").fetchone()
+        active=con.execute('''SELECT * FROM refresh_runs WHERE state IN ('QUEUED','RUNNING')
+                                 AND scope_json NOT LIKE '%analyze_listing_ids%' LIMIT 1''').fetchone()
         if active:
             con.execute('INSERT INTO trigger_attempts VALUES(?,?,?,?,?,?)',
                         (attempt_id,source,active['id'],'REJECTED_OVERLAP',dumps({'scope':scope}),now()))
@@ -403,6 +404,44 @@ def enqueue_refresh(request:Request,body:RefreshBody,response:Response,
     except Exception:
         con.execute('ROLLBACK')
         raise
+
+def enqueue_reanalysis(con,listing_ids):
+    """Herbeoordeling zonder controle: alleen de AI-/lokale beoordeling van deze auto's, niets ophalen."""
+    ids=sorted(set(listing_ids))
+    marks=','.join('?'*len(ids))
+    con.execute(f'UPDATE listings SET analyzed_hash=NULL WHERE id IN ({marks})',ids)
+    run_id=uid('rr')
+    scope={'analyze_listing_ids':ids}
+    con.execute('''INSERT INTO refresh_runs(id,trigger_source,state,scope_json,request_hash,created_at)
+                   VALUES(?,?,?,?,?,?)''',(run_id,'REANALYSIS','QUEUED',dumps(scope),'reanalysis',now()))
+    return run_id
+
+@app.post('/api/v1/listings/{listing_id}/reanalyze',status_code=202)
+def reanalyze_listing(listing_id:str,_=Depends(require_csrf),con=Depends(connection)):
+    if not con.execute('SELECT 1 FROM listings WHERE id=?',(listing_id,)).fetchone():
+        raise HTTPException(404,'Auto niet gevonden')
+    run_id=enqueue_reanalysis(con,[listing_id])
+    return {'run_id':run_id,'status_url':f'/api/v1/refresh-runs/{run_id}'}
+
+@app.post('/api/v1/integrations/process-queue',status_code=202)
+def process_queue(_=Depends(require_csrf),con=Depends(connection)):
+    """Beoordeel auto's die nog wachten, binnen dezelfde AI-limiet per controle."""
+    ids=[r[0] for r in con.execute("SELECT id FROM listings WHERE analyzed_hash IS NULL AND availability='ACTIVE'")]
+    if not ids:raise HTTPException(409,'Er wacht geen auto op beoordeling')
+    run_id=enqueue_reanalysis(con,ids)
+    return {'run_id':run_id,'count':len(ids)}
+
+@app.get('/api/v1/integrations/summary')
+def integrations_summary(_=Depends(require_ui),con=Depends(connection)):
+    month=now()[:7]
+    row=con.execute('''SELECT
+        (SELECT COUNT(*) FROM listings WHERE analyzed_hash IS NOT NULL) AS assessed,
+        (SELECT COUNT(*) FROM listings WHERE analyzed_hash IS NULL AND availability='ACTIVE') AS waiting,
+        (SELECT COUNT(*) FROM integration_requests WHERE decision='ERROR' AND substr(created_at,1,7)=?) AS failed,
+        (SELECT COALESCE(SUM(COALESCE(tokens_in,0)+COALESCE(tokens_out,0)),0) FROM integration_requests
+           WHERE substr(created_at,1,7)=?) AS tokens_month''',(month,month)).fetchone()
+    return {**dict(row),'max_per_run':settings.max_gemini_calls_per_run,
+            'ai_enabled':bool(settings.gemini_enabled and settings.gemini_api_key)}
 
 @app.get('/api/v1/refresh-runs')
 def runs(_=Depends(require_ui),con=Depends(connection)):
@@ -514,12 +553,14 @@ def listing_detail(listing_id:str,_=Depends(require_ui),con=Depends(connection))
     # Every active wish, also those without an assessment yet (shown as uncertain).
     listing['claims']=[dict(r) for r in con.execute('''SELECT cr.key AS criterion_key,cr.label,cr.group_name,cr.weight,
         COALESCE(c.status,'UNKNOWN') AS status,c.evidence,c.reason,COALESCE(c.confidence,0) AS confidence,
-        c.source,c.updated_at,c.listing_id IS NULL AS not_assessed
+        c.source,c.updated_at,c.integration_id,c.listing_id IS NULL AS not_assessed
         FROM criteria cr LEFT JOIN claims c ON c.criterion_key=cr.key AND c.listing_id=?
         WHERE cr.enabled=1 ORDER BY cr.group_name,cr.weight DESC,cr.label''',(listing_id,))]
     listing['status_reason']=status_reason(listing.pop('status_keys_json','{}'),criteria_labels(con))
     listing['notes']=[dict(r) for r in con.execute('SELECT * FROM negotiation_notes WHERE listing_id=? ORDER BY created_at DESC',(listing_id,))]
     listing.update(listing_insights(con,[listing]).get(listing_id,{}))
+    # Exactly the text that is assessed (minimised, personal data removed).
+    listing['assessed_text']=cleaned_text(listing['title'],listing['description'],get_criteria(con))
     return listing
 
 @app.get('/api/v1/listings/{listing_id}/valuation')
@@ -565,7 +606,8 @@ def set_description(listing_id:str,body:DescriptionBody,_=Depends(require_csrf),
     digest=text_hash(cleaned_text(row['title'],text,get_criteria(con)))
     con.execute('''UPDATE listings SET description=?,description_source=?,text_hash=?,analyzed_hash=NULL,updated_at=?
                    WHERE id=?''',(text,'MANUAL' if text else None,digest,now(),listing_id))
-    return {'updated':True,'description_source':'MANUAL' if text else None}
+    run_id=enqueue_reanalysis(con,[listing_id])
+    return {'updated':True,'description_source':'MANUAL' if text else None,'run_id':run_id}
 
 @app.delete('/api/v1/listings/{listing_id}/review/{criterion_key}')
 def undo_review(listing_id:str,criterion_key:str,_=Depends(require_csrf),con=Depends(connection)):
@@ -573,11 +615,11 @@ def undo_review(listing_id:str,criterion_key:str,_=Depends(require_csrf),con=Dep
     cur=con.execute("DELETE FROM claims WHERE listing_id=? AND criterion_key=? AND source='MANUAL_OVERRIDE'",
                     (listing_id,criterion_key))
     if not cur.rowcount:raise HTTPException(404,'Geen eigen oordeel gevonden')
-    con.execute('UPDATE listings SET analyzed_hash=NULL WHERE id=?',(listing_id,))
     criteria=get_criteria(con)
     apply_local_claims(con,criteria,{criterion_key},{listing_id})
     score=recalculate_score(con,listing_id,criteria)
-    return {'updated':True,'score':score}
+    run_id=enqueue_reanalysis(con,[listing_id])
+    return {'updated':True,'score':score,'run_id':run_id}
 
 @app.post('/api/v1/listings/{listing_id}/notes')
 def add_note(listing_id:str,body:NoteBody,_=Depends(require_csrf),con=Depends(connection)):
@@ -600,6 +642,12 @@ def integration_detail(integration_id:str,_=Depends(require_ui),con=Depends(conn
     result=dict(row)
     for key in ('request_json','parsed_json'):
         result[key]=json.loads(result[key]) if result[key] else None
+    car=con.execute('SELECT title FROM listings WHERE id=?',(row['listing_id'],)).fetchone()
+    result['title']=car['title'] if car else None
+    # Readable verdicts from this assessment (also for local recognition without an AI call).
+    result['claims']=[dict(r) for r in con.execute('''SELECT c.criterion_key,cr.label,cr.group_name,c.status,c.evidence,
+        c.reason,c.confidence,c.source FROM claims c JOIN criteria cr ON cr.key=c.criterion_key
+        WHERE c.integration_id=? ORDER BY cr.group_name,cr.weight DESC''',(integration_id,))]
     return result
 
 @app.get('/api/v1/export/observations.csv')

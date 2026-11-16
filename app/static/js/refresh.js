@@ -18,6 +18,11 @@ export function isFollowing() {
 /** Zin in gewone taal over de uitkomst van een controle. */
 export function outcomeSentence(run) {
   const s = run.summary || {};
+  if (s.analyzed !== undefined) {
+    if (run.state === 'FAILED') return 'Herbeoordeling mislukt.';
+    const wait = s.waiting ? `, ${fmt(s.waiting)} wachten op de volgende controle` : '';
+    return `Herbeoordeling klaar: ${fmt(s.analyzed)} ${s.analyzed === 1 ? 'auto' : 'auto\'s'} beoordeeld${wait}.`;
+  }
   const parts = [`${fmt(s.found ?? 0)} auto's`];
   if (s.new) parts.push(`${fmt(s.new)} nieuw`);
   if (s.price_changes) parts.push(`${fmt(s.price_changes)} ${s.price_changes === 1 ? 'prijswijziging' : 'prijswijzigingen'}`);

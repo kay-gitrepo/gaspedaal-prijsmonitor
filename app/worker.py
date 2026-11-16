@@ -55,15 +55,19 @@ def apply_local_claims(con, criteria, keys, listing_ids=None):
                               (row['id'], c['key'])).fetchone()
             if old and (old['source'] == 'MANUAL_OVERRIDE' or not claim or claim['status'] not in ('PRESENT', 'ABSENT')):
                 continue
+            source = 'LOCAL_RULE' if claim else 'NOT_MENTIONED'
             claim = claim or {'status': 'UNKNOWN', 'evidence_quote': None, 'confidence': 0,
-                              'reason_short': 'Niet aangetoond in toegestane advertentietekst'}
-            con.execute('''INSERT INTO claims(listing_id,criterion_key,status,evidence,reason,confidence,source,updated_at)
-                VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(listing_id,criterion_key) DO UPDATE SET status=excluded.status,
-                evidence=excluded.evidence,reason=excluded.reason,confidence=excluded.confidence,source=excluded.source,
-                updated_at=excluded.updated_at''',
+                              'reason_short': NOT_MENTIONED_REASON}
+            con.execute('''INSERT INTO claims(listing_id,criterion_key,status,evidence,reason,confidence,source,updated_at,
+                integration_id) VALUES(?,?,?,?,?,?,?,?,NULL) ON CONFLICT(listing_id,criterion_key) DO UPDATE SET
+                status=excluded.status,evidence=excluded.evidence,reason=excluded.reason,confidence=excluded.confidence,
+                source=excluded.source,updated_at=excluded.updated_at,integration_id=NULL''',
                 (row['id'], c['key'], claim['status'], claim.get('evidence_quote'), claim.get('reason_short'),
-                 claim.get('confidence', 0), 'AD_TEXT', now()))
+                 claim.get('confidence', 0), source, now()))
         recalculate_score(con, row['id'], criteria)
+
+
+NOT_MENTIONED_REASON = 'Niet aangetoond in toegestane advertentietekst'
 
 
 def recalculate_score(con, listing_id, criteria):
@@ -87,9 +91,9 @@ def analyze_listing(con, listing_id, run_id, criteria):
         return 'CACHE_HIT'
     local = local_claims(text, criteria)
     outstanding = [c for c in criteria if local.get(c['key'],{}).get('status') not in ('PRESENT','ABSENT')]
-    all_claims = {c['key']:{'criterion_key':c['key'],'status':'UNKNOWN','confidence':0,
-                  'evidence_quote':None,'reason_short':'Niet aangetoond in toegestane advertentietekst'} for c in criteria}
-    all_claims.update(local)
+    all_claims = {c['key']:{'criterion_key':c['key'],'status':'UNKNOWN','confidence':0,'source':'NOT_MENTIONED',
+                  'evidence_quote':None,'reason_short':NOT_MENTIONED_REASON} for c in criteria}
+    all_claims.update({k:{**v,'source':'LOCAL_RULE'} for k,v in local.items()})
     decision = 'LOCAL_ONLY' if not outstanding else 'SKIPPED_NO_KEY'
     outgoing, incoming, parsed, duration, ti, to, error = None,None,None,None,None,None,None
     if outstanding and settings.gemini_enabled and settings.gemini_api_key:
@@ -102,7 +106,7 @@ def analyze_listing(con, listing_id, run_id, criteria):
                 remote, call = classify(text,outstanding)
                 incoming, parsed, duration, ti, to = call['response'], call['parsed'],call['duration_ms'],call['tokens_in'],call['tokens_out']
                 # Deterministic PRESENT/ABSENT claims are not demoted by uncertain model output.
-                all_claims.update({x['criterion_key']:x for x in remote})
+                all_claims.update({x['criterion_key']:{**x,'source':'GEMINI'} for x in remote})
             except Exception as exc:
                 decision = 'ERROR'
                 error = f'{type(exc).__name__}: modelaanroep mislukt (details achterwege om sleutels/gegevens te beschermen)' 
@@ -116,21 +120,22 @@ def analyze_listing(con, listing_id, run_id, criteria):
     else:
         decision='SKIPPED_NO_KEY'
     # Log the exact sanitized payload sent, parsed response, errors and use; skipped requests do not pretend to be API calls.
+    integration_id = uid('gi')
     con.execute('''INSERT INTO integration_requests(id,run_id,listing_id,decision,model_id,request_json,response_json,parsed_json,
         tokens_in,tokens_out,duration_ms,error,text_hash,criteria_hash,created_at)
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-        (uid('gi'),run_id,listing_id,decision,settings.gemini_model,dumps(outgoing) if outgoing else None,
+        (integration_id,run_id,listing_id,decision,settings.gemini_model,dumps(outgoing) if outgoing else None,
          incoming,dumps(parsed) if parsed else None,ti,to,duration,error,row['text_hash'],fingerprint,now()))
     for key,c in all_claims.items():
         original=con.execute('SELECT source FROM claims WHERE listing_id=? AND criterion_key=?',(listing_id,key)).fetchone()
         if original and original['source']=='MANUAL_OVERRIDE':
             continue  # Manual evidence is deliberately sticky across refreshes.
-        con.execute('''INSERT INTO claims(listing_id,criterion_key,status,evidence,reason,confidence,source,updated_at)
-           VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(listing_id,criterion_key) DO UPDATE SET
+        con.execute('''INSERT INTO claims(listing_id,criterion_key,status,evidence,reason,confidence,source,updated_at,
+           integration_id) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(listing_id,criterion_key) DO UPDATE SET
            status=excluded.status,evidence=excluded.evidence,reason=excluded.reason,confidence=excluded.confidence,
-           source=excluded.source,updated_at=excluded.updated_at''',
+           source=excluded.source,updated_at=excluded.updated_at,integration_id=excluded.integration_id''',
            (listing_id,key,c['status'],c.get('evidence_quote'),c.get('reason_short'),c.get('confidence',0),
-            'AD_TEXT',now()))
+            c.get('source','GEMINI'),now(),integration_id))
     # Failed/budgeted analyses must be eligible for retry later.
     if decision not in ('ERROR','SKIPPED_BUDGET'):
         con.execute('UPDATE listings SET analyzed_hash=? WHERE id=?',(fingerprint,listing_id))
@@ -334,6 +339,25 @@ def scan_profile(con,run_id,profile,criteria):
     return stats
 
 
+def reanalyze(con,run_id,listing_ids):
+    """Herbeoordeling: alleen analyze_listing, geen ophalen bij de bron en geen verdwijn-logica."""
+    criteria=get_criteria(con)
+    totals={'analyzed':0,'gemini_calls':0,'gemini_errors':0,'waiting':0,'local_only':0}
+    for listing_id in listing_ids:
+        state=analyze_listing(con,listing_id,run_id,criteria)
+        if state=='MISSING':continue
+        totals['analyzed']+=1
+        if state=='SUCCESS':totals['gemini_calls']+=1
+        if state=='ERROR':totals['gemini_errors']+=1
+        if state=='SKIPPED_BUDGET':totals['waiting']+=1
+        if state in ('LOCAL_ONLY','SKIPPED_NO_KEY'):totals['local_only']+=1
+    state='COMPLETE' if not totals['gemini_errors'] else 'PARTIAL'
+    con.execute('UPDATE refresh_runs SET state=?,finished_at=?,summary_json=? WHERE id=?',
+                (state,now(),dumps(totals),run_id))
+    log_event(con,run_id,'RUN','INFO' if state=='COMPLETE' else 'WARN',
+              f'Herbeoordeling afgerond: {totals["analyzed"]} auto\'s',totals)
+
+
 def execute_run(run_id):
     con=connect()
     try:
@@ -343,8 +367,12 @@ def execute_run(run_id):
         con.execute('UPDATE refresh_runs SET state=?,started_at=? WHERE id=? AND state=?',('RUNNING',now(),run_id,'QUEUED'))
         run=con.execute('SELECT * FROM refresh_runs WHERE id=?',(run_id,)).fetchone()
         if run is None or run['state']!='RUNNING': return
-        log_event(con,run_id,'RUN','INFO','Controle gestart')
         scope=json.loads(run['scope_json'])
+        if isinstance(scope,dict) and 'analyze_listing_ids' in scope:
+            log_event(con,run_id,'RUN','INFO','Herbeoordeling gestart')
+            reanalyze(con,run_id,scope['analyze_listing_ids'])
+            return
+        log_event(con,run_id,'RUN','INFO','Controle gestart')
         profiles=con.execute('SELECT * FROM search_profiles WHERE enabled=1 ORDER BY title').fetchall()
         if scope!='all':
             allowed=set(scope.get('profile_ids',[]))

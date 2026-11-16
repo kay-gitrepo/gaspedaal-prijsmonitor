@@ -17,6 +17,7 @@ export function duration(r) {
 /** Eén zin over een controle, zonder technische codes. */
 export function summarySentence(r) {
   const s = r.summary || {};
+  if (s.analyzed !== undefined) return `${fmt(s.analyzed)} ${s.analyzed === 1 ? 'auto' : 'auto\'s'} opnieuw beoordeeld`;
   if (r.state === 'FAILED') return 'Mislukt; er is niets als verdwenen gemarkeerd.';
   if (['QUEUED', 'RUNNING'].includes(r.state)) return 'Bezig…';
   const parts = [`${fmt(s.found ?? 0)} auto's`];

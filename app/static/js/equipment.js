@@ -3,6 +3,7 @@ import {api} from './api.js';
 import {esc, fmt} from './format.js';
 import {CLAIM_SOURCE, GROUP, label} from './labels.js';
 import {badge, button, icon, segment, toast} from './ui.js';
+import {follow} from './refresh.js';
 import {wishName} from './status.js';
 
 const OPTIONS = [['PRESENT', 'Aanwezig'], ['ABSENT', 'Afwezig'], ['UNKNOWN', 'Onbekend']];
@@ -22,6 +23,8 @@ function claimRow(id, c) {
   const manual = c.source === 'MANUAL_OVERRIDE';
   const quote = c.evidence ? `<p><mark>“${esc(c.evidence)}”</mark></p>` : '';
   const how = manual ? 'Door jou bevestigd' : `${origin(c)}${c.not_assessed ? '' : ` · ${certainty(c.confidence)}`}`;
+  const log = c.integration_id ? ` · <a href="#/ai-analyse/${encodeURIComponent(c.integration_id)}">Bekijk beoordeling</a>`
+    : '';
   const value = OPTIONS.some(([v]) => v === c.status) ? c.status : 'UNKNOWN';
   const undo = manual ? button('Terug naar automatisch', {variant: 'text', size: 's', icon: 'refresh',
     action: 'undo-review', data: {id, key: c.criterion_key}}) : '';
@@ -33,14 +36,14 @@ function claimRow(id, c) {
       ${button('Notitie opslaan', {type: 'submit', size: 's'})}</form>` : '';
   return `<div class="claim-row"><div><strong>${esc(c.label)}</strong>
     ${badge(label(GROUP, c.group_name), c.group_name === 'MUST_HAVE' ? 'info' : 'neutral')}${quote}
-    <p>${esc(how)}</p></div>
+    <p>${esc(how)}${log}</p></div>
     <div class="claim-edit">${segment(`claim-${c.criterion_key}`, OPTIONS, manual ? value : '',
       {label: `Jouw oordeel over ${c.label}`, data: {change: 'claim-status', id, key: c.criterion_key}})}${undo}</div>
     ${note}</div>`;
 }
 
-/** Drie groepen: Bevestigd · Ontbreekt · Onzeker. */
-export function equipmentHtml(id, claims) {
+/** Drie groepen: Bevestigd · Ontbreekt · Onzeker; daaronder de beoordeelde tekst en "Opnieuw beoordelen". */
+export function equipmentHtml(id, claims, {assessedText = ''} = {}) {
   if (!claims.length) return '<p class="muted">Er zijn nog geen wensen ingesteld.</p>';
   const groups = [
     ['Bevestigd', 'check-circle', claims.filter(c => c.status === 'PRESENT')],
@@ -50,7 +53,12 @@ export function equipmentHtml(id, claims) {
   return groups.filter(([, , items]) => items.length).map(([title, ic, items]) => `<section class="claim-group">
     <h4>${icon(ic)}${title} (${fmt(items.length)})</h4>${items.map(c => claimRow(id, c)).join('')}</section>`).join('')
     + '<p class="muted small">Kies Aanwezig, Afwezig of Onbekend om het oordeel zelf vast te leggen. '
-    + 'Je eigen oordeel blijft staan bij volgende controles.</p>';
+    + 'Je eigen oordeel blijft staan bij volgende controles.</p>'
+    + `<div class="row reassess">${button('Opnieuw beoordelen', {icon: 'sparkles', size: 's', action: 'reanalyze',
+      data: {id}})}</div>
+    <details class="disclosure"><summary>${icon('chevron-down')}Beoordeelde tekst</summary>
+      <p class="muted small">Precies deze tekst is beoordeeld: ingekort tot de relevante regels, zonder e-mailadressen en
+      telefoonnummers.</p><pre class="json assessed">${esc(assessedText || 'Geen tekst.')}</pre></details>`;
 }
 
 /** Onzekere wensen, must-haves eerst, daarna op gewicht. */
@@ -99,10 +107,17 @@ export function equipmentActions(reload) {
   return {
     actions: {
       async 'undo-review'(el) {
-        await api(`/listings/${encodeURIComponent(el.dataset.id)}/review/${encodeURIComponent(el.dataset.key)}`,
+        const r = await api(`/listings/${encodeURIComponent(el.dataset.id)}/review/${encodeURIComponent(el.dataset.key)}`,
           {method: 'DELETE'});
-        toast('Terug naar automatisch. Wordt bij de volgende controle opnieuw beoordeeld.');
+        toast('Terug naar automatisch. De auto wordt opnieuw beoordeeld.', 'info');
         await reload(el.dataset.id);
+        if (r.run_id) await follow(r.run_id);
+      },
+      async reanalyze(el) {
+        const r = await api(`/listings/${encodeURIComponent(el.dataset.id)}/reanalyze`, {method: 'POST'});
+        el.classList.add('loading');
+        toast('Herbeoordeling gestart.', 'info');
+        await follow(r.run_id);
       },
       async 'copy-questions'() {
         const text = document.getElementById('questions-text')?.value || '';

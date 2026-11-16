@@ -16,7 +16,7 @@ import * as instellingen from './pages/instellingen.js';
 
 const BASE = {overzicht, aanbod, auto, wensen, zoekopdrachten, controles, 'ai-analyse': aiAnalyse, instellingen};
 /* Detailvensters op beheerschermen; de auto heeft een eigen pagina. */
-const DETAIL = {'ai-analyse': aiAnalyse.showIntegration};
+const DETAIL = {};
 const TITLES = {
   overzicht: 'Overzicht', aanbod: 'Aanbod', auto: 'Auto', wensen: 'Mijn wensen', zoekopdrachten: 'Zoekopdrachten',
   controles: 'Controles', 'ai-analyse': 'AI-beoordeling', instellingen: 'Instellingen',
