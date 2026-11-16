@@ -49,7 +49,7 @@ def test_end_to_end_price_history_and_logs():
         assert sum(row['score_total']>=70 for row in data)>=1
         assert data[0]['observations']==1
         assert client.get('/api/v1/integrations').json()['items']
-        assert client.get('/api/v1/dashboard').json()['active_listings']==2
+        assert client.get('/api/v1/market').json()['for_sale']==2
         # Same prices are recorded on a second, successful scan.
         second=client.post('/api/v1/refresh-runs',headers=headers,json={'scope':'all'})
         assert second.status_code==202

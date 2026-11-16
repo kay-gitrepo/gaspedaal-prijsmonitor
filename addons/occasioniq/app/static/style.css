@@ -362,7 +362,7 @@ details.disclosure[open] > summary .icon { transform: rotate(180deg); }
 .bar .fill { fill: var(--teal); }
 .bar .fill-2 { fill: #4d81b1; }
 .chart { width: 100%; height: auto; max-height: 260px; display: block; }
-.chart text { font-size: 12px; fill: var(--text-3); font-family: var(--font); }
+.chart text { fill: var(--text-3); font-family: var(--font); }
 .chart .grid-line { stroke: var(--border); }
 .chart .line { fill: none; stroke: var(--teal); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .chart .dot { fill: #fff; stroke: var(--teal); stroke-width: 2; }
@@ -586,7 +586,7 @@ a.list-item:hover { text-decoration: none; background: var(--surface-2); }
 .chart .cursor { stroke: var(--border-strong); stroke-width: 1; }
 .chart .cursor-dot { fill: var(--navy); stroke: #fff; stroke-width: 2; }
 .chart .chart-tip rect { fill: var(--navy); }
-.chart .chart-tip text { fill: #fff; font-size: 12px; font-weight: 600; }
+.chart .chart-tip text { fill: #fff; font-weight: 600; }
 .chart .marker { stroke: #fff; stroke-width: 2; }
 .chart .marker-first { fill: var(--navy); }
 .chart .marker-change { fill: var(--teal-strong); }
@@ -678,7 +678,7 @@ td.cell-main { min-width: 230px; }
 /* Onderhandelen (WP-10) */
 .lead { font-size: var(--fs-16); color: var(--text); }
 .band-chart { width: 100%; max-width: 720px; height: auto; display: block; }
-.band-chart text { font-size: 12px; fill: var(--text-3); font-family: var(--font); }
+.band-chart text { fill: var(--text-3); font-family: var(--font); }
 .band-chart .band-axis { stroke: var(--border-strong); stroke-width: 2; }
 .band-chart .band-range { fill: rgba(36, 186, 167, .22); stroke: var(--teal); }
 .band-chart .band-median { stroke: var(--teal-strong); stroke-width: 3; }
@@ -696,3 +696,30 @@ td.cell-main { min-width: 230px; }
 .arg-links { margin: var(--s1) 0 0; padding-left: var(--s4); font-size: var(--fs-13); }
 .stack > h4 { margin: var(--s3) 0 0; font-size: var(--fs-16); }
 @media (max-width: 1120px) { .amounts { grid-template-columns: minmax(0, 1fr); } }
+
+/* Overzicht (WP-11) */
+.periods { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--r1); overflow: hidden; background: var(--surface); }
+.period { display: inline-flex; align-items: center; min-height: 36px; padding: 0 var(--s3); color: var(--text-2); font-weight: 600; font-size: var(--fs-13); border-right: 1px solid var(--border); }
+.period:last-child { border-right: 0; }
+.period:hover { text-decoration: none; background: var(--surface-2); }
+.period.active { background: var(--navy); color: #fff; }
+.stat-of { font-size: var(--fs-16); font-weight: 600; color: var(--text-3); }
+.sparkline { width: 100%; max-width: 160px; height: 32px; margin-top: var(--s2); display: block; }
+.sparkline polyline { fill: none; stroke: var(--teal); stroke-width: 2; stroke-linejoin: round; }
+.opp { align-items: flex-start; }
+.opp-side { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s1); text-align: right; }
+.trend { margin-top: var(--s3); }
+.flow { width: 100%; height: auto; max-height: 160px; display: block; }
+.flow text { fill: var(--text-3); }
+.flow .bar-new { fill: var(--teal); }
+.flow .bar-gone { fill: #e0a63a; }
+.sub-head { margin: var(--s5) 0 var(--s2); font-size: var(--fs-14); }
+.legend .lg-median::before { background: var(--teal); }
+.legend .lg-band::before { background: rgba(36, 186, 167, .3); border-radius: 2px; }
+.legend .lg-index::before { background: #4d81b1; }
+.legend .lg-budget::before { background: var(--danger); }
+.legend .lg-new::before { background: var(--teal); border-radius: 2px; }
+.legend .lg-gone::before { background: #e0a63a; border-radius: 2px; }
+@media (max-width: 760px) { .page-head .periods { align-self: flex-start; } }
+
+.facts dd.small { font-size: var(--fs-12); font-weight: 400; }

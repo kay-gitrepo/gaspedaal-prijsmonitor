@@ -1,4 +1,4 @@
-"""Gaspedaal Price Monitor: authenticated REST API + static browser dashboard."""
+"""OccasionIQ: authenticated REST API + static browser app."""
 import csv
 import hashlib
 import io
@@ -23,6 +23,7 @@ from app.extraction import cleaned_text, sha256 as text_hash
 from app.insights import first_photo, listing_insights
 from app import changes as run_changes
 from app.valuation_data import market_positions, valuation_for
+from app.market_data import market_overview
 from app.provider import Snapshot, validate_search_url
 from app.worker import start_worker, stop_worker, get_criteria, recalculate_score, recalculate_all, apply_local_claims
 
@@ -448,33 +449,12 @@ def check_changes(profile_id:str|None=None,run_id:str|None=None,_=Depends(requir
         raise HTTPException(404,'Controle niet gevonden')
     return run_changes.changes(con,profile_id,run_id)
 
-@app.get('/api/v1/dashboard')
-def dashboard(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
-    if profile_id:
-        rows=[dict(r) for r in con.execute('''SELECT l.id,l.price_eur,l.year,l.kilometers,l.eligibility,l.score_total,
-            TRIM(l.description)!='' AS has_text FROM listings l JOIN profile_listings pl ON pl.listing_id=l.id
-            WHERE pl.profile_id=? AND pl.status='ACTIVE' ''',(profile_id,))]
-        daily=con.execute('''SELECT substr(observed_at,1,10) AS date, listing_id, price_eur FROM price_observations
-            WHERE profile_id=? ORDER BY observed_at DESC,id DESC''',(profile_id,)).fetchall()
-    else:
-        rows=[dict(r) for r in con.execute('''SELECT id,price_eur,year,kilometers,eligibility,score_total,
-            TRIM(description)!='' AS has_text FROM listings WHERE availability='ACTIVE' ''')]
-        daily=con.execute('SELECT substr(observed_at,1,10) AS date, listing_id, price_eur FROM price_observations ORDER BY observed_at DESC,id DESC').fetchall()
-    values=sorted(r['price_eur'] for r in rows)
-    # Last observation per vehicle and calendar day, so repeat scans do not overweight a listing.
-    seen=set(); dates={}
-    for r in daily:
-        key=(r['date'],r['listing_id'])
-        if key in seen:continue
-        seen.add(key);dates.setdefault(r['date'],[]).append(r['price_eur'])
-    trend=[{'date':date,'mean_asking':round(sum(p)/len(p)),'count':len(p)} for date,p in sorted(dates.items())][-90:]
-    with_text=[r for r in rows if r['has_text']]
-    # Cars without ad text cannot be judged on equipment, so they do not count towards the average match.
-    return {'active_listings':len(rows),'median_asking':values[len(values)//2] if values else None,
-            'matches':sum(r['eligibility']=='MATCH' for r in rows),
-            'average_score':round(sum(r['score_total'] for r in with_text)/len(with_text),1) if with_text else None,
-            'with_text':len(with_text),
-            'price_trend':trend}
+@app.get('/api/v1/market')
+def market(profile_id:str|None=None,days:int|None=None,_=Depends(require_ui),con=Depends(connection)):
+    """Market overview answering the seven questions; every statistic carries n and is null below n = 5."""
+    if days is not None and days not in (30,90):raise HTTPException(422,'Kies 30 of 90 dagen, of laat leeg voor alles')
+    return market_overview(con,profile_id,days)
+
 
 LIST_COLUMNS = ('''l.id,l.external_id,l.title,l.url,l.year,l.kilometers,l.trim,l.seller,l.price_eur,l.first_seen,
     l.last_seen,l.updated_at,l.availability,l.favorite,l.analyzed_hash,l.score_total,l.score_must,l.score_nice,

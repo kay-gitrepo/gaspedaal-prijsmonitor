@@ -52,5 +52,5 @@ def test_dashboard_reports_text_coverage():
         run(client, headers, pid, [
             {'external_id': 'cov-1', 'title': 'XC90 a', 'price_eur': 70000, 'description': 'Met trekhaak'},
             {'external_id': 'cov-2', 'title': 'XC90 b', 'price_eur': 71000}])
-        d = client.get(f'/api/v1/dashboard?profile_id={pid}').json()
-        assert d['active_listings'] == 2 and d['with_text'] == 1
+        d = client.get(f'/api/v1/market?profile_id={pid}').json()
+        assert d['for_sale'] == 2 and d['with_text'] == 1

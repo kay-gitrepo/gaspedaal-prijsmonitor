@@ -135,12 +135,16 @@ function show(wrap, index) {
   dot.setAttribute('visibility', 'visible');
   const tip = svg.querySelector('.chart-tip');
   const label = tip.querySelector('text');
+  const fs = Number(svg.getAttribute('font-size')) || 12;
   label.textContent = text;
-  const tw = label.getComputedTextLength() + 16;
+  const tw = label.getComputedTextLength() + fs * 1.4;
+  const th = fs * 2;
   const tx = Math.min(Math.max(2, x - tw / 2), w - tw - 2);
-  const ty = Math.max(2, y - 34);
+  const ty = Math.max(2, y - th - fs);
   tip.querySelector('rect').setAttribute('width', tw);
-  label.setAttribute('x', 8);
+  tip.querySelector('rect').setAttribute('height', th);
+  label.setAttribute('x', fs * 0.7);
+  label.setAttribute('y', fs * 1.35);
   tip.setAttribute('transform', `translate(${tx.toFixed(1)} ${ty.toFixed(1)})`);
   tip.setAttribute('visibility', 'visible');
 }
@@ -185,3 +189,25 @@ document.addEventListener('focusout', e => {
   const wrap = e.target.closest?.('.chart-wrap');
   if (wrap) hide(wrap);
 });
+
+/* ---------- Leesbare tekst bij elke breedte ----------
+ * Een SVG met viewBox schaalt tekst mee. Na het tekenen zetten we de lettergrootte (als SVG-attribuut, geen stijl)
+ * zo dat labels op het scherm ongeveer 12 px zijn, ook in een smalle kaart. */
+export function fitCharts(root = document) {
+  root.querySelectorAll('svg.chart, svg.band-chart, svg.flow').forEach(svg => {
+    const box = svg.viewBox?.baseVal;
+    const width = svg.getBoundingClientRect().width;
+    if (!box || !box.width || !width) return;
+    svg.setAttribute('font-size', (12 * box.width / width).toFixed(1));
+  });
+}
+
+let fitTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => fitCharts(), 120);
+});
+new MutationObserver(() => {
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => fitCharts(), 30);
+}).observe(document.getElementById('content'), {childList: true, subtree: true});

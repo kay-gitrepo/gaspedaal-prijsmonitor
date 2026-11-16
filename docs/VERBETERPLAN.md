@@ -125,7 +125,7 @@ Werk van boven naar beneden. Werk deze tabel bij na elk WP (`☐` → `☑`, met
 | 08 | Aanbodlijst en autopagina | F7 F8 B5 U2 U4 U7 | Sonnet | ☑ 16-11-2026 · 0.12.0 |
 | 09 | Controles: voortgang, actualiteit, wat is er veranderd | F15 | Sonnet | ☑ 17-11-2026 · 0.13.0 |
 | 10 | Marktwaarde en onderhandelingspositie | F9 F10 | **Opus** | ☑ 17-11-2026 · 0.14.0 |
-| 11 | Marktoverzicht dat de zeven vragen beantwoordt | F11 F12 B6 U7 | **Opus** (rekenwerk), Sonnet (UI) | ☐ |
+| 11 | Marktoverzicht dat de zeven vragen beantwoordt | F11 F12 B6 U7 | **Opus** (rekenwerk), Sonnet (UI) | ☑ 17-11-2026 · 0.15.0 |
 | 12 | Inzicht in de AI-beoordeling | F16 | Sonnet | ☐ |
 | 13 | Wensen per zoekopdracht | F13 | **Opus** | ☐ |
 | 14 | Optioneel, eerst bevestigen: meldingen via Home Assistant, shortlist vergelijken, dossier | F17, doel §9 | Sonnet | ☐ |
@@ -437,6 +437,7 @@ Run-ID's en andere technische ID's staan alleen nog op de beheerschermen, nooit 
    - mediaan veranderde meer dan 1 % en de index minder dan 0,5 % → "De mediaan daalde € X, maar dezelfde auto's werden nauwelijks goedkoper: vooral de samenstelling van het aanbod veranderde."
    - beide daalden meer dan 0,5 % → "Bestaande advertenties werden gemiddeld Y % goedkoper."
    - anders → "Vraagprijzen zijn in deze periode stabiel."
+   > **Uitvoering:** de regel "beide daalden" is ook in spiegelbeeld opgenomen ("…werden gemiddeld Y % duurder"), anders zou een duidelijke prijsstijging als "stabiel" worden beschreven. De samenstellingsregel noemt "daalde" of "steeg".
    - minder dan 14 meetdagen → "Nog te kort gevolgd voor een trend (N dagen)."
 
 **Kerncijfer "Binnen budget":** "7 van 62 auto's, waarvan 2 voldoen", met een kleine lijn van dat aantal door de tijd.
