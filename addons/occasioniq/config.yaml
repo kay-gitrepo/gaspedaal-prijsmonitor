@@ -1,0 +1,41 @@
+name: OccasionIQ Prijsmonitor
+version: "0.2.0"
+slug: occasioniq_prijsmonitor
+description: Volvo XC90 vraagprijs- en uitrustingsmonitor met externe Home Assistant refresh-trigger
+url: https://www.gaspedaal.nl
+arch:
+  - amd64
+  - aarch64
+startup: application
+init: false
+boot: auto
+ports:
+  8099/tcp: 8099
+ports_description:
+  8099/tcp: Webinterface en Home Assistant refresh-API
+webui: http://[HOST]:[PORT:8099]
+map:
+  - type: data
+    read_only: false
+options:
+  ui_password: ""
+  session_secret: ""
+  ha_refresh_token: ""
+  gemini_api_key: ""
+  gemini_model: gemini-3.5-flash-lite
+  data_source_approved: false
+  gaspedaal_api_search_template: ""
+  gaspedaal_api_items_path: data.results
+  gaspedaal_api_fields_json: "{}"
+  gaspedaal_api_max_pages: 10
+schema:
+  ui_password: password
+  session_secret: password
+  ha_refresh_token: password
+  gemini_api_key: password?
+  gemini_model: str
+  data_source_approved: bool
+  gaspedaal_api_search_template: str?
+  gaspedaal_api_items_path: str
+  gaspedaal_api_fields_json: str
+  gaspedaal_api_max_pages: int(1,50)

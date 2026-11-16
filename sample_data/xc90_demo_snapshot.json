@@ -1,0 +1,137 @@
+{
+  "complete": true,
+  "listings": [
+    {
+      "external_id": "DEMO-XC90-001",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 1",
+      "price_eur": 81150,
+      "year": 2025,
+      "kilometers": 22900,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-1",
+      "description": "Elektrisch wegklapbare trekhaak. 22'' lichtmetalen wielen. HUD en luchtvering. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    },
+    {
+      "external_id": "DEMO-XC90-002",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 2",
+      "price_eur": 79800,
+      "year": 2025,
+      "kilometers": 27800,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-2",
+      "description": "Elektrisch wegklapbare trekhaak. 22-inch wheels. Pilot Assist, panoramadak, 360 camera. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    },
+    {
+      "external_id": "DEMO-XC90-003",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 3",
+      "price_eur": 77100,
+      "year": 2025,
+      "kilometers": 32700,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-3",
+      "description": "Elektrisch wegklapbare trekhaak. 19 inch velgen. HUD en luchtvering. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    },
+    {
+      "external_id": "DEMO-XC90-004",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 4",
+      "price_eur": 75750,
+      "year": 2025,
+      "kilometers": 37600,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-4",
+      "description": "Geen trekhaak. 22 inch velgen. Pilot Assist, panoramadak, 360 camera. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    },
+    {
+      "external_id": "DEMO-XC90-005",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 5",
+      "price_eur": 74400,
+      "year": 2025,
+      "kilometers": 42500,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-5",
+      "description": "Elektrisch wegklapbare trekhaak. 22'' lichtmetalen wielen. HUD en luchtvering. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    },
+    {
+      "external_id": "DEMO-XC90-006",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 6",
+      "price_eur": 71700,
+      "year": 2025,
+      "kilometers": 47400,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-6",
+      "description": "Elektrisch wegklapbare trekhaak. 22-inch wheels. Pilot Assist, panoramadak, 360 camera. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    },
+    {
+      "external_id": "DEMO-XC90-007",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 7",
+      "price_eur": 70350,
+      "year": 2025,
+      "kilometers": 52300,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-7",
+      "description": "Elektrisch wegklapbare trekhaak. 19 inch velgen. HUD en luchtvering. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    },
+    {
+      "external_id": "DEMO-XC90-008",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 8",
+      "price_eur": 69000,
+      "year": 2025,
+      "kilometers": 57200,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-8",
+      "description": "Geen trekhaak. 22 inch velgen. Pilot Assist, panoramadak, 360 camera. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    },
+    {
+      "external_id": "DEMO-XC90-009",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 9",
+      "price_eur": 66300,
+      "year": 2025,
+      "kilometers": 62100,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-9",
+      "description": "Elektrisch wegklapbare trekhaak. 22'' lichtmetalen wielen. HUD en luchtvering. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    },
+    {
+      "external_id": "DEMO-XC90-010",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 10",
+      "price_eur": 64950,
+      "year": 2025,
+      "kilometers": 67000,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-10",
+      "description": "Elektrisch wegklapbare trekhaak. 22-inch wheels. Pilot Assist, panoramadak, 360 camera. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    },
+    {
+      "external_id": "DEMO-XC90-011",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 11",
+      "price_eur": 63600,
+      "year": 2025,
+      "kilometers": 71900,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-11",
+      "description": "Elektrisch wegklapbare trekhaak. 19 inch velgen. HUD en luchtvering. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    },
+    {
+      "external_id": "DEMO-XC90-012",
+      "title": "DEMO Volvo XC90 T8 Ultra 2025 – auto 12",
+      "price_eur": 60900,
+      "year": 2025,
+      "kilometers": 76800,
+      "trim": "Ultra",
+      "seller": "DEMO – fictieve dealer",
+      "url": "https://example.com/demo-xc90-12",
+      "description": "Geen trekhaak. 22 inch velgen. Pilot Assist, panoramadak, 360 camera. Fictieve demonstratieadvertentie, niet werkelijk te koop."
+    }
+  ]
+}

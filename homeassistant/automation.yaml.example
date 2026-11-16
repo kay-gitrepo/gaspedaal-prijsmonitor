@@ -1,0 +1,10 @@
+# Maak deze automatisering aan via de HA UI of neem hem op in automations.yaml.
+- id: gaspedaal_prijsmonitor_dagelijks
+  alias: "Gaspedaal - dagelijkse prijscontrole"
+  description: "Home Assistant beheert het tijdschema, de app voert de verwerking uit."
+  triggers:
+    - trigger: time
+      at: "08:00:00"
+  actions:
+    - action: rest_command.gaspedaal_prijsmonitor_refresh
+  mode: single

@@ -1,0 +1,11 @@
+# Voeg dit toe aan de bestaande Home Assistant configuration.yaml.
+# Pas het IP-adres aan naar de host waarop de container draait.
+rest_command:
+  gaspedaal_prijsmonitor_refresh:
+    url: "http://192.168.1.100:8099/api/v1/refresh-runs"
+    method: POST
+    content_type: application/json
+    headers:
+      Authorization: !secret gaspedaal_prijsmonitor_bearer
+    payload: '{"scope":"all","reason":"scheduled_ha"}'
+    timeout: 15

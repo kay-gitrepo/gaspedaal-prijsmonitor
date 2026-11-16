@@ -1,0 +1,18 @@
+services:
+  gaspedaal-prijsmonitor:
+    build: .
+    container_name: gaspedaal-prijsmonitor
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8099:8099"
+    volumes:
+      - price_monitor_data:/data
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    pids_limit: 256
+volumes:
+  price_monitor_data:

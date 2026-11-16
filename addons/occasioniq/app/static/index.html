@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101b2e"><title>Occasion Intelligence · Prijsmonitor</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <section id="login" class="login-screen hidden">
+    <form id="login-form" class="login-panel">
+      <div class="brand-mark">◆</div><p class="eyebrow">PERSONAL CAR INTELLIGENCE</p>
+      <h1>Jouw occasionmarkt.<br>Volledig inzicht.</h1>
+      <p>Volg vraagprijzen, vergelijk uitrusting en onderhandel met feiten.</p>
+      <label for="password">Beheerwachtwoord</label>
+      <input id="password" type="password" autocomplete="current-password" required placeholder="Wachtwoord">
+      <button class="btn btn-primary" type="submit">Inloggen →</button>
+      <small id="login-error" class="error-text"></small>
+    </form>
+  </section>
+  <div id="shell" class="shell hidden">
+    <aside class="sidebar">
+      <div class="logo"><div class="logo-icon">◆</div><div><strong>Occasion<span>IQ</span></strong><small>PRIJS & AANKOOPANALYSE</small></div></div>
+      <div class="nav-heading">WERKRUIMTE</div>
+      <nav id="nav">
+        <button data-page="dashboard" class="nav-link active"><span>◫</span> Overzicht</button>
+        <button data-page="aanbod" class="nav-link"><span>▤</span> Autoaanbod</button>
+        <button data-page="profielen" class="nav-link"><span>⌕</span> Zoekprofielen</button>
+        <button data-page="wensen" class="nav-link"><span>✦</span> Mijn opties</button>
+        <div class="nav-heading nested">INTEGRATIES</div>
+        <button data-page="runs" class="nav-link"><span>↻</span> Uitvoeringslog</button>
+        <button data-page="gemini" class="nav-link"><span>✳</span> Gemini-log</button>
+        <button data-page="instellingen" class="nav-link"><span>⚙</span> Home Assistant</button>
+      </nav>
+      <div class="sidebar-bottom"><span class="online-dot"></span><span>Lokaal gehost</span><button id="logout" title="Uitloggen">Uitloggen</button></div>
+    </aside>
+    <div class="content-area">
+      <header class="topbar"><button id="menu-toggle" class="mobile-menu" aria-label="Menu">☰</button><div class="crumb">VOLVO XC90 <span>/</span> <span id="crumb-active">Marktoverzicht</span></div><div class="top-actions"><span class="source-tag">◉ Configureerbare databron</span><button id="top-refresh" class="btn btn-primary">↻ &nbsp; Nu verversen</button></div></header>
+      <main id="content"><div class="loading">Dashboard laden…</div></main>
+      <footer>OccasionIQ · Vraagprijzen zijn geen gerealiseerde verkoopprijzen. Verdwenen advertenties zijn geen verkoopbewijs.</footer>
+    </div>
+  </div>
+  <div id="modal-backdrop" class="modal-backdrop hidden"><div id="modal" class="modal" role="dialog" aria-modal="true"></div></div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
