@@ -75,5 +75,9 @@ def test_profile_without_snapshot_uses_search_url_when_approved(monkeypatch):
     from app import provider
     import app.config as cfg
     monkeypatch.setattr(cfg,'settings',SimpleNamespace(data_source_approved=True))
+    import sqlite3
+    con=sqlite3.connect(':memory:');con.row_factory=sqlite3.Row
+    row=con.execute("SELECT 'fixture' AS provider, NULL AS fixture_payload").fetchone()
+    assert isinstance(provider.provider_for(row),site.GaspedaalSiteProvider)
     assert isinstance(provider.provider_for(_P({'provider':'fixture','fixture_payload':None})),site.GaspedaalSiteProvider)
     assert isinstance(provider.provider_for(_P({'provider':'fixture','fixture_payload':'{}'})),provider.FixtureProvider)

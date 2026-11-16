@@ -53,7 +53,7 @@ class ListingProvider(Protocol):
 
 class FixtureProvider:
     def fetch(self, profile: dict) -> Snapshot:
-        if not profile.get('fixture_payload'):
+        if not _payload(profile):
             raise ValueError('Geen JSON-import aanwezig. Importeer eerst advertentiegegevens.')
         snapshot = Snapshot.model_validate_json(profile['fixture_payload'])
         keys = [x.external_id for x in snapshot.listings]
@@ -61,6 +61,11 @@ class FixtureProvider:
             raise ValueError('Onbetrouwbare bron: dubbele external_id in snapshot')
         return snapshot
 
+
+
+def _payload(profile):
+    """Werkt voor dict én sqlite3.Row."""
+    return profile['fixture_payload'] if 'fixture_payload' in profile.keys() else None
 
 
 def provider_for(profile):

@@ -53,7 +53,7 @@ class ListingProvider(Protocol):
 
 class FixtureProvider:
     def fetch(self, profile: dict) -> Snapshot:
-        if not profile.get('fixture_payload'):
+        if not _payload(profile):
             raise ValueError('Geen JSON-import aanwezig. Importeer eerst advertentiegegevens.')
         snapshot = Snapshot.model_validate_json(profile['fixture_payload'])
         keys = [x.external_id for x in snapshot.listings]
@@ -63,10 +63,15 @@ class FixtureProvider:
 
 
 
+def _payload(profile):
+    """Werkt voor dict én sqlite3.Row."""
+    return profile['fixture_payload'] if 'fixture_payload' in profile.keys() else None
+
+
 def provider_for(profile):
     from app.config import settings
     # Profiel zonder JSON-import (bijv. aangemaakt vóór activering van de bron): gebruik de zoeklink.
-    if profile['provider'] == 'fixture' and not profile.get('fixture_payload') and settings.data_source_approved:
+    if profile['provider'] == 'fixture' and not (profile['fixture_payload'] if 'fixture_payload' in profile.keys() else None) and settings.data_source_approved:
         from app.gaspedaal_site import GaspedaalSiteProvider
         return GaspedaalSiteProvider()
     if profile['provider'] == 'fixture':
