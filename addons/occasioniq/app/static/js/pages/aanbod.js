@@ -7,12 +7,13 @@ import {$, badge, button, card, emptyState, icon, notice, pageHead, skeletons, s
 import {profileQuery} from '../context.js';
 import {matchCell, statusChip} from '../status.js';
 import {failureNotice} from '../freshness.js';
+import {marketCell} from '../negotiation.js';
 
 let items = [];
 let state = {};
 
 const TABS = [
-  {key: 'voldoet', label: 'Voldoet', test: x => x.availability === 'ACTIVE' && x.eligibility === 'MATCH', sort: 'prijs'},
+  {key: 'voldoet', label: 'Voldoet', test: x => x.availability === 'ACTIVE' && x.eligibility === 'MATCH', sort: 'markt'},
   {key: 'controleren', label: 'Nog te controleren', sort: 'potentie',
     test: x => x.availability === 'ACTIVE' && ['UNVERIFIED', 'REVIEW'].includes(x.eligibility)},
   {key: 'valtaf', label: 'Valt af', test: x => x.availability === 'ACTIVE' && x.eligibility === 'REJECTED', sort: 'prijs'},
@@ -23,6 +24,7 @@ const TABS = [
 
 const SORTS = {
   prijs: {get: x => x.price_eur, dir: 'op'},
+  markt: {get: x => x.market_diff, dir: 'op'},
   km: {get: x => x.kilometers ?? Infinity, dir: 'op'},
   bouwjaar: {get: x => x.year ?? 0, dir: 'af'},
   potentie: {get: x => x.score_potential, dir: 'af'},
@@ -134,7 +136,7 @@ function columns(gone) {
       {label: 'Laatst gezien', sort: 'laatstgezien'}, {label: 'In beeld', num: true, sort: 'inbeeld'},
       {label: 'Status'}, {label: 'Shortlist'}]);
   }
-  return base.concat([{label: 'Vraagprijs', num: true, sort: 'prijs'},
+  return base.concat([{label: 'Vraagprijs', num: true, sort: 'prijs'}, {label: 't.o.v. markt', num: true, sort: 'markt'},
     {label: 'Match', sort: state.tab === 'controleren' ? 'potentie' : 'match'}, {label: 'In beeld', num: true, sort: 'inbeeld'},
     {label: 'Status'}, {label: 'Shortlist'}]);
 }
@@ -145,7 +147,8 @@ function row(x, gone) {
     return head.concat([`<strong>${euro(x.price_eur)}</strong>`, `<div>${esc(datum(x.last_seen))}<span class="sub">
       ${esc(relatief(x.last_seen))}</span></div>`, inView(x), status(x), star(x)]);
   }
-  return head.concat([`<div><strong>${euro(x.price_eur)}</strong>${priceChange(x)}</div>`, matchCell(x, {detail: false}),
+  return head.concat([`<div><strong>${euro(x.price_eur)}</strong>${priceChange(x)}</div>`, `<div>${marketCell(x)}</div>`,
+    matchCell(x, {detail: false}),
     inView(x), status(x), star(x)]);
 }
 
@@ -191,7 +194,9 @@ function draw() {
   const s = SORTS[state.sort];
   const filtered = items.filter(x => passes(x, state.filters));
   const cars = filtered.filter(tab.test).sort((a, b) => {
-    const d = s.get(a) - s.get(b);
+    const [va, vb] = [s.get(a), s.get(b)];
+    if (va == null || vb == null) return (va == null) - (vb == null) || a.price_eur - b.price_eur;
+    const d = va - vb;
     return (state.dir === 'op' ? d : -d) || a.price_eur - b.price_eur;
   });
   const tabItems = TABS.map(t => ({key: t.key, label: t.label, count: filtered.filter(t.test).length,

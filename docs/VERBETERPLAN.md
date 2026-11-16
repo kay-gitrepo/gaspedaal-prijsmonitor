@@ -124,7 +124,7 @@ Werk van boven naar beneden. Werk deze tabel bij na elk WP (`☐` → `☑`, met
 | 07 | Matchscore met onzekerheid, vragen aan de verkoper, corrigeren | F4 F5 F6 | Sonnet | ☑ 16-11-2026 · 0.11.0 |
 | 08 | Aanbodlijst en autopagina | F7 F8 B5 U2 U4 U7 | Sonnet | ☑ 16-11-2026 · 0.12.0 |
 | 09 | Controles: voortgang, actualiteit, wat is er veranderd | F15 | Sonnet | ☑ 17-11-2026 · 0.13.0 |
-| 10 | Marktwaarde en onderhandelingspositie | F9 F10 | **Opus** | ☐ |
+| 10 | Marktwaarde en onderhandelingspositie | F9 F10 | **Opus** | ☑ 17-11-2026 · 0.14.0 |
 | 11 | Marktoverzicht dat de zeven vragen beantwoordt | F11 F12 B6 U7 | **Opus** (rekenwerk), Sonnet (UI) | ☐ |
 | 12 | Inzicht in de AI-beoordeling | F16 | Sonnet | ☐ |
 | 13 | Wensen per zoekopdracht | F13 | **Opus** | ☐ |

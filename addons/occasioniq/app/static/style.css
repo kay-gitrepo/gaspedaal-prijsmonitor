@@ -674,3 +674,25 @@ td.cell-main { min-width: 230px; }
   .freshness { width: 32px; padding: 0; justify-content: center; }
   .freshness-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
 }
+
+/* Onderhandelen (WP-10) */
+.lead { font-size: var(--fs-16); color: var(--text); }
+.band-chart { width: 100%; max-width: 720px; height: auto; display: block; }
+.band-chart text { font-size: 12px; fill: var(--text-3); font-family: var(--font); }
+.band-chart .band-axis { stroke: var(--border-strong); stroke-width: 2; }
+.band-chart .band-range { fill: rgba(36, 186, 167, .22); stroke: var(--teal); }
+.band-chart .band-median { stroke: var(--teal-strong); stroke-width: 3; }
+.band-chart .band-asking { fill: var(--navy); }
+.band-chart .band-asking-label { fill: var(--navy); font-weight: 700; }
+.band-chart .band-budget { stroke: var(--danger); stroke-width: 2; stroke-dasharray: 5 4; }
+.known-row { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); color: var(--text-2); }
+.known-row > span { display: inline-flex; align-items: center; gap: var(--s2); }
+.amounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4); }
+.amount { border: 1px solid var(--border); border-radius: var(--r2); padding: var(--s4); display: flex; flex-direction: column;
+  gap: var(--s2); background: var(--surface-2); }
+.amount-value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.amounts-actions { grid-column: 1 / -1; }
+.arguments { margin: 0; padding-left: var(--s5); display: flex; flex-direction: column; gap: var(--s2); }
+.arg-links { margin: var(--s1) 0 0; padding-left: var(--s4); font-size: var(--fs-13); }
+.stack > h4 { margin: var(--s3) 0 0; font-size: var(--fs-16); }
+@media (max-width: 1120px) { .amounts { grid-template-columns: minmax(0, 1fr); } }

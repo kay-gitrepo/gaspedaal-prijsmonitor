@@ -320,6 +320,12 @@ def _m7_score_uncertainty(con):
 _m7_score_uncertainty.changes_data = True
 
 
+def _m8_own_amounts(con):
+    """Eigen openingsbod, streefprijs en grens per auto (WP-10); leeg = het voorstel geldt."""
+    for name in ('my_opening', 'my_target', 'my_max'):
+        add_column(con, 'listings', name, 'INTEGER')
+
+
 # (versie, functie). Functies met attribuut `changes_data = True` wijzigen bestaande rijen;
 # vóór de eerste daarvan wordt een back-up van het databasebestand gemaakt.
 MIGRATIONS = [
@@ -330,6 +336,7 @@ MIGRATIONS = [
     (5, _m5_description_source),
     (6, _m6_criteria_terms),
     (7, _m7_score_uncertainty),
+    (8, _m8_own_amounts),
 ]
 
 

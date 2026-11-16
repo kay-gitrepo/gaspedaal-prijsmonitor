@@ -50,6 +50,8 @@ def plan_cars(ads):
     random.seed(1)
     plans = []
     for ad in ads:
+        # Vaste spreiding rond de lineaire demoprijs, zodat marktband en onderhandelen iets laten zien.
+        ad['price_eur'] += random.choice(range(-2500, 2501, 250))
         first = 0 if random.random() < 0.4 else random.randint(1, 35)
         drops = []
         if random.random() < 0.34:

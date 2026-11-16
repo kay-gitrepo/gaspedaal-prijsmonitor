@@ -22,8 +22,8 @@ from app.db import connect, dumps, init_db, now, rowdict, uid
 from app.extraction import cleaned_text, sha256 as text_hash
 from app.insights import first_photo, listing_insights
 from app import changes as run_changes
+from app.valuation_data import market_positions, valuation_for
 from app.provider import Snapshot, validate_search_url
-from app.scoring import negotiation_snapshot
 from app.worker import start_worker, stop_worker, get_criteria, recalculate_score, recalculate_all, apply_local_claims
 
 ROOT = Path(__file__).parent
@@ -99,6 +99,11 @@ class ReviewBody(BaseModel):
 
 class DescriptionBody(BaseModel):
     text: str = Field(default='',max_length=50000)
+
+class NegotiationBody(BaseModel):
+    my_opening: int | None = Field(default=None,ge=1000,le=2_000_000)
+    my_target: int | None = Field(default=None,ge=1000,le=2_000_000)
+    my_max: int | None = Field(default=None,ge=1000,le=2_000_000)
 
 class NoteBody(BaseModel):
     offer_eur: int | None = Field(default=None,ge=0)
@@ -496,7 +501,13 @@ def listings(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connecti
         item['status_reason']=status_reason(item.pop('status_keys_json','{}'),labels)
         item['photo']=first_photo(item.pop('photos_json'))
     extra=listing_insights(con,items,profile_id)
-    for item in items:item.update(extra.get(item['id'],{}))
+    market=market_positions(con,items)
+    for item in items:
+        item.update(extra.get(item['id'],{}))
+        position=market.get(item['id']) or {}
+        item['market_diff']=position.get('difference')
+        item['market_n']=position.get('n')
+        item['market_median']=position.get('median')
     return {'items':items}
 
 
@@ -529,13 +540,22 @@ def listing_detail(listing_id:str,_=Depends(require_ui),con=Depends(connection))
     listing['status_reason']=status_reason(listing.pop('status_keys_json','{}'),criteria_labels(con))
     listing['notes']=[dict(r) for r in con.execute('SELECT * FROM negotiation_notes WHERE listing_id=? ORDER BY created_at DESC',(listing_id,))]
     listing.update(listing_insights(con,[listing]).get(listing_id,{}))
-    # Restrict comps to same model category, similar year and kilometers. Trim preference is conditional.
-    comps=[dict(r) for r in con.execute("SELECT id,price_eur,year,kilometers,trim FROM listings WHERE availability='ACTIVE' AND id!=?",(listing_id,))]
-    comps=[c for c in comps if (not row['year'] or not c['year'] or abs(c['year']-row['year'])<=2)
-           and (row['kilometers'] is None or c['kilometers'] is None or abs(c['kilometers']-row['kilometers'])<=40000)
-           and (not row['trim'] or not c['trim'] or row['trim'].casefold()==c['trim'].casefold())]
-    listing['negotiation']=negotiation_snapshot(listing,comps)
     return listing
+
+@app.get('/api/v1/listings/{listing_id}/valuation')
+def listing_valuation(listing_id:str,_=Depends(require_ui),con=Depends(connection)):
+    """Market band from comparable asking prices, three amounts and the arguments. Never a selling price."""
+    if not con.execute('SELECT 1 FROM listings WHERE id=?',(listing_id,)).fetchone():
+        raise HTTPException(404,'Auto niet gevonden')
+    return valuation_for(con,listing_id,get_criteria(con))
+
+@app.put('/api/v1/listings/{listing_id}/negotiation')
+def set_negotiation(listing_id:str,body:NegotiationBody,_=Depends(require_csrf),con=Depends(connection)):
+    """Your own opening bid, target and limit; null returns to the suggestion."""
+    cur=con.execute('UPDATE listings SET my_opening=?,my_target=?,my_max=? WHERE id=?',
+                    (body.my_opening,body.my_target,body.my_max,listing_id))
+    if not cur.rowcount:raise HTTPException(404,'Auto niet gevonden')
+    return {'updated':True}
 
 @app.post('/api/v1/listings/{listing_id}/favorite')
 def toggle_favorite(listing_id:str,_=Depends(require_csrf),con=Depends(connection)):

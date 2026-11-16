@@ -8,6 +8,7 @@ import {matchCell, statusChip} from '../status.js';
 import {equipmentActions, equipmentHtml, openQuestions, questionsHtml} from '../equipment.js';
 import {lastListHash} from '../router.js';
 import {inView, priceChange} from './aanbod.js';
+import {negotiationHtml, negotiationSubmits} from '../negotiation.js';
 
 export function skeleton() {
   return '<div class="skeleton sk-title"></div><div class="skeleton sk-text"></div>'
@@ -165,17 +166,6 @@ function textCard(x) {
     ${form}</details>`, {sub: TEXT_SOURCE[x.description_source] || 'Uit de bron'});
 }
 
-function negotiation(neg) {
-  if (!neg?.sample_size) return '<p class="muted">Te weinig vergelijkbare auto\'s voor een indicatie.</p>';
-  const rows = [['Mediane vraagprijs vergelijkbaar', euro(neg.median_asking)],
-    ['Verschil met mediaan', euro(neg.difference_vs_median_eur)],
-    ['Openingsbod (indicatie)', euro(neg.illustrative_opening_offer)],
-    ['Streefprijs (indicatie)', euro(neg.illustrative_target)]];
-  return `<dl class="facts">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
-    <p class="muted small">Indicatie op basis van vraagprijzen van vergelijkbare auto's (n = ${fmt(neg.sample_size)}).
-    Geen verkoopprijzen.</p>`;
-}
-
 function notesCard(x) {
   const notes = x.notes.map(n => `<div class="list-item"><div><strong>${esc(n.note)}</strong>
     <p>${dt(n.created_at)}${n.offer_eur ? ' · bod ' + euro(n.offer_eur) : ''}</p></div></div>`).join('');
@@ -187,7 +177,7 @@ function notesCard(x) {
     ${notes ? `<div class="list">${notes}</div>` : ''}`);
 }
 
-function page(x) {
+function page(x, v) {
   const until = x.availability === 'ACTIVE' ? new Date().toISOString() : x.last_seen;
   const chartHtml = chart({series: [{name: 'Vraagprijs', type: 'step', points: priceSeries(x)}], until,
     title: 'Vraagprijs', summary: `Vraagprijs van ${euro(x.first_price)} naar ${euro(x.price_eur)}; `
@@ -206,21 +196,26 @@ function page(x) {
         + `${fmt(x.score_potential)}% mogelijk · bewijs voor ${fmt(x.evidence_coverage)}% van het gewicht`})}
       ${card('Vragen aan de verkoper', questionsHtml(x, claims), {id: 'vragen',
         sub: openQuestions(claims).length ? 'Eén vraag per onzekere wens, must-haves eerst' : ''})}</section>
-    <section id="onderhandelen" class="car-section">${card('Onderhandelen', negotiation(x.negotiation))}</section>
+    <section id="onderhandelen" class="car-section">${card('Onderhandelen', negotiationHtml(x, v))}</section>
     <section id="notities" class="car-section">${notesCard(x)}</section>`;
 }
 
+function load(id) {
+  const path = '/listings/' + encodeURIComponent(id);
+  return Promise.all([api(path), api(path + '/valuation')]);
+}
+
 export async function render(params, id) {
-  const x = await api('/listings/' + encodeURIComponent(id));
+  const [x, v] = await load(id);
   document.title = `${x.title} · OccasionIQ`;
-  $('#content').innerHTML = page(x);
+  $('#content').innerHTML = page(x, v);
 }
 
 /** Opnieuw tekenen na een wijziging, zonder skelet en met behoud van de scrollpositie. */
 async function reload(id) {
   const y = window.scrollY;
-  const x = await api('/listings/' + encodeURIComponent(id));
-  $('#content').innerHTML = page(x);
+  const [x, v] = await load(id);
+  $('#content').innerHTML = page(x, v);
   window.scrollTo(0, y);
 }
 
@@ -252,6 +247,7 @@ export const changes = {...equipment.changes};
 
 export const submits = {
   ...equipment.submits,
+  ...negotiationSubmits(reload),
   async description(form) {
     const text = new FormData(form).get('text') || '';
     await api('/listings/' + encodeURIComponent(form.dataset.id) + '/description', {method: 'POST', body: {text}});
