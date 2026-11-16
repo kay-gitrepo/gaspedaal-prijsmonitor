@@ -1,2 +1,2 @@
 """Eén plek voor het versienummer van de app (FastAPI, /health en de Home Assistant-add-on)."""
-VERSION = '0.11.0'
+VERSION = '0.12.0'

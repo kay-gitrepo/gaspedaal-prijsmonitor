@@ -241,9 +241,12 @@ export function toggle(text, checked, opt = {}) {
     <span class="switch-track" aria-hidden="true"></span><span>${esc(text)}</span></button>`;
 }
 
-/** Uitklapmenu met knoppen; items: [{text, icon, action, data, variant, href}]. */
-export function menu(label, items) {
+/** Uitklapmenu met knoppen; items: [{text, icon, action, data, variant, href}].
+ * Zonder `text` is de knop alleen een icoon (drie puntjes). */
+export function menu(label, items, {text = '', icon: iconName = 'more'} = {}) {
   const list = items.map(i => button(i.text, {...i, variant: i.variant || 'text', cls: 'menu-item'})).join('');
-  return `<details class="menu"><summary class="btn btn-s btn-icon" title="${esc(label)}">${icon('more')}
-    <span class="sr-only">${esc(label)}</span></summary><div class="menu-list">${list}</div></details>`;
+  const summary = text ? `<summary class="btn btn-s">${icon(iconName)}${esc(text)}${icon('chevron-down', 'icon-sm')}</summary>`
+    : `<summary class="btn btn-s btn-icon" title="${esc(label)}">${icon(iconName)}
+    <span class="sr-only">${esc(label)}</span></summary>`;
+  return `<details class="menu">${summary}<div class="menu-list">${list}</div></details>`;
 }

@@ -576,3 +576,88 @@ a.list-item:hover { text-decoration: none; background: var(--surface-2); }
   .claim-edit { align-items: flex-start; }
 }
 .detail-match { margin: calc(-1 * var(--s3)) 0 var(--s5); max-width: 360px; }
+
+/* Grafiek (WP-08) */
+.chart-wrap { position: relative; outline-offset: 2px; touch-action: pan-y; }
+.chart .band { fill: rgba(36, 186, 167, .16); }
+.chart .line.secondary { stroke: #4d81b1; stroke-dasharray: 5 4; }
+.chart .hline { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.chart .hline-label { fill: var(--danger); font-weight: 600; }
+.chart .cursor { stroke: var(--border-strong); stroke-width: 1; }
+.chart .cursor-dot { fill: var(--navy); stroke: #fff; stroke-width: 2; }
+.chart .chart-tip rect { fill: var(--navy); }
+.chart .chart-tip text { fill: #fff; font-size: 12px; font-weight: 600; }
+.chart .marker { stroke: #fff; stroke-width: 2; }
+.chart .marker-first { fill: var(--navy); }
+.chart .marker-change { fill: var(--teal-strong); }
+.chart .marker-missing { fill: #e0a63a; }
+.chart .marker-back { fill: var(--info); }
+.chart .pt { fill: var(--neutral); fill-opacity: .8; stroke: #fff; stroke-width: 1.5; }
+.chart .pt.pt-match { fill: var(--success); }
+.chart .pt.pt-check { fill: #e0a63a; }
+.chart .pt.pt-reject { fill: var(--danger); }
+.chart-single { padding: var(--s4) 0; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); margin-top: var(--s2); font-size: var(--fs-12); color: var(--text-3); }
+.legend .lg { display: inline-flex; align-items: center; gap: var(--s1); }
+.legend .lg::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--neutral); }
+.legend .lg-first::before { background: var(--navy); }
+.legend .lg-change::before { background: var(--teal-strong); }
+.legend .lg-missing::before { background: #e0a63a; }
+.legend .lg-back::before { background: var(--info); }
+.legend .lg-match::before { background: var(--success); }
+.legend .lg-check::before { background: #e0a63a; }
+.legend .lg-reject::before { background: var(--danger); }
+
+/* Aanbod (WP-08) */
+.filters .field { flex: 0 1 150px; }
+.filters .filter-q { flex: 1 1 240px; }
+.active-filters:empty { display: none; }
+.active-filters { margin-bottom: var(--s3); }
+.labels { margin-top: var(--s1); gap: var(--s1); }
+.star { color: var(--text-3); }
+.star.on, .star[aria-pressed="true"] { color: #d79a10; }
+.star .icon-fill { fill: currentColor; }
+
+/* Autopagina (WP-08) */
+.car-head {
+  position: sticky; top: 64px; z-index: 15; background: var(--bg); margin: calc(-1 * var(--s7)) calc(-1 * var(--s7)) var(--s5);
+  padding: var(--s3) var(--s7) 0; border-bottom: 1px solid var(--border);
+}
+.car-head h1 { font-size: 24px; }
+.car-meta { margin-top: var(--s1); }
+.car-title { min-width: 0; }
+.anchor-nav { display: flex; gap: var(--s1); overflow-x: auto; margin-top: var(--s2); }
+.anchor { background: none; border: 0; border-bottom: 2px solid transparent; min-height: 40px; padding: 0 var(--s3);
+  color: var(--text-3); font-weight: 600; white-space: nowrap; }
+.anchor:hover { color: var(--text); border-bottom-color: var(--border-strong); }
+.car-section { scroll-margin-top: 215px; margin-bottom: var(--s5); }
+.car-section > .card + .card { margin-top: var(--s5); }
+.gallery-card { padding: var(--s3); }
+.gallery-empty { display: grid; place-items: center; gap: var(--s2); min-height: 240px; color: var(--text-3); text-align: center; }
+.btn-ad { width: auto; padding: 0 var(--s3); }
+@media (max-width: 1120px) {
+  .car-head { margin: calc(-1 * var(--s6)) calc(-1 * var(--s5)) var(--s5); padding: var(--s3) var(--s5) 0; }
+}
+@media (max-width: 760px) {
+  .car-head { top: 56px; margin: calc(-1 * var(--s5)) calc(-1 * var(--s4)) var(--s4); padding: var(--s2) var(--s4) 0; }
+  .car-head h1 { font-size: 20px; }
+  .car-section { scroll-margin-top: 230px; }
+  .filters .field { flex: 1 1 140px; }
+}
+td.cell-main { min-width: 230px; }
+.match { min-width: 140px; max-width: 190px; }
+.match-text { white-space: normal; display: block; line-height: 1.35; }
+.offers-card .thumb { width: 84px; height: 58px; }
+@media (max-width: 760px) { td.cell-main { min-width: 0; } .match { max-width: none; } }
+.offers-card tbody td, .offers-card thead th { padding-left: var(--s2); padding-right: var(--s2); }
+.offers-card td .badge { white-space: normal; }
+.offers-card .thumb { width: 72px; height: 50px; }
+.card .detail-match { margin: var(--s4) 0 0; max-width: 360px; }
+.facts + p { margin-top: var(--s3); }
+.filter-details > summary { margin-bottom: var(--s2); }
+.filter-details:not([open]) { margin-bottom: var(--s2); }
+@media (max-width: 760px) {
+  .car-head { position: static; }
+  .car-section { scroll-margin-top: 72px; }
+  .gallery-empty { min-height: 120px; }
+}

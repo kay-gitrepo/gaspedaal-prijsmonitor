@@ -1,6 +1,6 @@
 /* Opstart, inloggen, router en gedelegeerde gebeurtenissen. Geen framework, geen build-stap. */
 import {api, setCsrf} from './api.js';
-import {PAGES, parseHash, replace} from './router.js';
+import {PAGES, parseHash, replace, setLastList} from './router.js';
 import {$, $$, closeDialogView, dialogOpen, errorState, skeletons, toast} from './ui.js';
 import {startRefresh, onRefreshFinished} from './refresh.js';
 import {onProfileChange, refreshProfiles, selectProfile} from './context.js';
@@ -13,26 +13,36 @@ import * as controles from './pages/controles.js';
 import * as aiAnalyse from './pages/ai-analyse.js';
 import * as instellingen from './pages/instellingen.js';
 
-const BASE = {overzicht, aanbod, wensen, zoekopdrachten, controles, 'ai-analyse': aiAnalyse, instellingen};
-const DETAIL = {auto: auto.showCar, controles: controles.showRun, 'ai-analyse': aiAnalyse.showIntegration};
+const BASE = {overzicht, aanbod, auto, wensen, zoekopdrachten, controles, 'ai-analyse': aiAnalyse, instellingen};
+/* Detailvensters op beheerschermen; de auto heeft een eigen pagina. */
+const DETAIL = {controles: controles.showRun, 'ai-analyse': aiAnalyse.showIntegration};
 const TITLES = {
-  overzicht: 'Overzicht', aanbod: 'Aanbod', wensen: 'Mijn wensen', zoekopdrachten: 'Zoekopdrachten',
+  overzicht: 'Overzicht', aanbod: 'Aanbod', auto: 'Auto', wensen: 'Mijn wensen', zoekopdrachten: 'Zoekopdrachten',
   controles: 'Controles', 'ai-analyse': 'AI-beoordeling', instellingen: 'Instellingen',
 };
-const MODULES = Object.values(BASE).concat([auto]);
-const actions = Object.assign({}, ...MODULES.map(m => m.actions || {}));
-const submits = Object.assign({}, ...MODULES.map(m => m.submits || {}));
-const changes = Object.assign({}, ...MODULES.map(m => m.changes || {}));
-const inputs = Object.assign({}, ...MODULES.map(m => m.inputs || {}));
-const keydowns = Object.assign({}, ...MODULES.map(m => m.keydowns || {}));
+const MODULES = Object.values(BASE);
+const merged = kind => Object.assign({}, ...MODULES.map(m => m[kind] || {}));
+const actions = merged('actions');
+const submits = merged('submits');
+const changes = merged('changes');
+const inputs = merged('inputs');
+const keydowns = merged('keydowns');
 
 let renderedBase = null;
-let renderedQuery = '';
+let renderedKey = '';
 let previous = null;
 let detailFromBase = false;
+const scrollMemory = new Map();
+
+/** Zoek de handler eerst op de huidige pagina, daarna globaal (zelfde naam op twee pagina's mag). */
+function handlerFor(kind, all, name, el) {
+  const inDialog = dialogOpen() && $('#dialog').contains(el);
+  const own = inDialog ? {} : (BASE[renderedBase]?.[kind] || {});
+  return own[name] || all[name];
+}
 
 function markNav(base, params) {
-  const key = base === 'aanbod' && params.get('shortlist') ? 'shortlist' : base;
+  const key = base === 'aanbod' && params.get('shortlist') ? 'shortlist' : base === 'auto' ? 'aanbod' : base;
   $$('.nav-link[data-nav]').forEach(a => {
     const active = a.dataset.nav === key;
     a.classList.toggle('active', active);
@@ -41,19 +51,21 @@ function markNav(base, params) {
   });
 }
 
-export async function renderBase(base, params = parseHash().params) {
+export async function renderBase(base, params = parseHash().params, id = parseHash().id) {
   renderedBase = base;
-  renderedQuery = params.toString();
+  renderedKey = `${base}/${id || ''}?${params.toString()}`;
+  if (['aanbod', 'overzicht'].includes(base)) setLastList(location.hash);
   markNav(base, params);
   closeMenu();
   document.title = `${TITLES[base]} · OccasionIQ`;
   const page = BASE[base];
   $('#content').innerHTML = page.skeleton ? page.skeleton() : skeletons.head() + skeletons.rows();
   try {
-    await page.render(params);
+    await page.render(params, id);
   } catch (e) {
     $('#content').innerHTML = errorState(e.message);
   }
+  window.scrollTo(0, scrollMemory.get(location.hash) || 0);
 }
 
 async function route() {
@@ -63,13 +75,11 @@ async function route() {
     return;
   }
   const detail = r.id ? DETAIL[r.page] : null;
-  const base = r.page === 'auto' ? (renderedBase || 'aanbod') : r.page;
-  detailFromBase = Boolean(detail && previous && !previous.id && (previous.page === base));
+  detailFromBase = Boolean(detail && previous && !previous.id && previous.page === r.page);
   previous = r;
-  const query = r.page === 'auto' ? renderedQuery : r.params.toString();
-  const sameBase = base === renderedBase && query === renderedQuery;
-  if (!sameBase || (!detail && !dialogOpen())) {
-    await renderBase(base, r.page === 'auto' ? new URLSearchParams(query) : r.params);
+  const key = `${r.page}/${detail ? '' : r.id || ''}?${r.params.toString()}`;
+  if (key !== renderedKey || (!detail && !dialogOpen())) {
+    await renderBase(r.page, r.params, detail ? null : r.id);
   }
   if (!detail) {
     if (dialogOpen()) closeDialogView();
@@ -85,13 +95,12 @@ async function route() {
 
 /** Sluit een detailvenster via de route, zodat terugknop en herladen hetzelfde doen. */
 function closeDetail() {
-  if (!parseHash().id) {
+  if (!parseHash().id || !DETAIL[parseHash().page]) {
     closeDialogView();
   } else if (detailFromBase) {
     history.back();
   } else {
-    const params = renderedQuery ? Object.fromEntries(new URLSearchParams(renderedQuery)) : null;
-    replace(renderedBase || 'overzicht', null, params);
+    replace(renderedBase || 'overzicht');
   }
 }
 
@@ -122,6 +131,14 @@ actions['refresh-all'] = el => startRefresh('all', el);
 actions.retry = () => renderBase(renderedBase || 'overzicht');
 actions['close-menu'] = () => closeMenu();
 
+async function run(handler, ...args) {
+  try {
+    await handler(...args);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 document.addEventListener('click', async e => {
   $$('details.menu[open]').forEach(m => {
     if (!m.contains(e.target)) m.removeAttribute('open');
@@ -132,15 +149,10 @@ document.addEventListener('click', async e => {
   }
   const el = e.target.closest('[data-action]');
   if (!el) return;
-  const own = dialogOpen() && $('#dialog').contains(el) ? {} : (BASE[renderedBase]?.actions || {});
-  const handler = own[el.dataset.action] || actions[el.dataset.action];
+  const handler = handlerFor('actions', actions, el.dataset.action, el);
   if (!handler) return;
   e.preventDefault();
-  try {
-    await handler(el, e);
-  } catch (err) {
-    toast(err.message, 'error');
-  }
+  await run(handler, el, e);
 });
 
 document.addEventListener('submit', async e => {
@@ -157,33 +169,23 @@ document.addEventListener('submit', async e => {
     }
     return;
   }
-  const handler = submits[form.dataset.submit];
+  const handler = handlerFor('submits', submits, form.dataset.submit, form);
   if (!handler) return;
   e.preventDefault();
   const submitter = e.submitter;
   submitter?.classList.add('loading');
-  try {
-    await handler(form, e);
-  } catch (err) {
-    toast(err.message, 'error');
-  } finally {
-    submitter?.classList.remove('loading');
-  }
+  await run(handler, form, e);
+  submitter?.classList.remove('loading');
 });
 
 document.addEventListener('input', e => {
-  const handler = inputs[e.target.dataset?.input];
+  const handler = handlerFor('inputs', inputs, e.target.dataset?.input, e.target);
   if (handler) handler(e.target);
 });
 
 document.addEventListener('change', async e => {
-  const handler = changes[e.target.dataset?.change];
-  if (!handler) return;
-  try {
-    await handler(e.target);
-  } catch (err) {
-    toast(err.message, 'error');
-  }
+  const handler = handlerFor('changes', changes, e.target.dataset?.change, e.target);
+  if (handler) await run(handler, e.target);
 });
 
 const dialog = $('#dialog');
@@ -195,14 +197,8 @@ dialog.addEventListener('click', e => {
   if (e.target === dialog) closeDetail();
 });
 document.addEventListener('keydown', async e => {
-  const keyHandler = keydowns[e.target.dataset?.keydown];
-  if (keyHandler) {
-    try {
-      await keyHandler(e.target, e);
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  }
+  const keyHandler = handlerFor('keydowns', keydowns, e.target.dataset?.keydown, e.target);
+  if (keyHandler) await run(keyHandler, e.target, e);
   if (e.key === 'Escape' && $('#sidebar').classList.contains('show')) closeMenu();
   if (e.key === 'Escape') $$('details.menu[open]').forEach(m => m.removeAttribute('open'));
 });
@@ -222,6 +218,17 @@ $('#menu-toggle').addEventListener('click', () => {
 window.addEventListener('hashchange', () => {
   if (!$('#shell').classList.contains('hidden')) route();
 });
+/* Een pagina die zijn adres bijwerkt (filters, sortering) zonder opnieuw te laden. */
+window.addEventListener('occasioniq:query', () => {
+  const r = parseHash();
+  renderedKey = `${r.page}/${r.id || ''}?${r.params.toString()}`;
+  if (r.page === 'aanbod') setLastList(location.hash);
+});
+let scrollTimer = null;
+window.addEventListener('scroll', () => {
+  clearTimeout(scrollTimer);
+  scrollTimer = setTimeout(() => scrollMemory.set(location.hash, window.scrollY), 80);
+}, {passive: true});
 onRefreshFinished(async () => {
   await refreshProfiles();
   if (renderedBase && !dialogOpen()) await renderBase(renderedBase);

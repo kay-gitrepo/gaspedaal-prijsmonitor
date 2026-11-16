@@ -75,7 +75,7 @@ export async function render() {
   }
   const active = l.items.filter(x => x.availability === 'ACTIVE');
   const best = active.slice(0, 6);
-  const trend = d.price_trend.map(t => ({date: datum(t.date), value: t.mean_asking}));
+  const trend = d.price_trend.map(t => ({x: t.date, y: t.mean_asking}));
   const runs = r.items.slice(0, 5).map(runItem).join('');
   const columns = [{label: 'Auto', main: true}, {label: 'Vraagprijs', num: true}, {label: 'Km', num: true},
     {label: 'Match'}, {label: 'Status'}];
@@ -90,7 +90,8 @@ export async function render() {
     </div>
     ${textCoverage(d)}
     <div class="grid grid-2">
-      ${card('Gemiddelde vraagprijs per dag', chart(trend, {title: 'Gemiddelde vraagprijs'}),
+      ${card('Gemiddelde vraagprijs per dag', chart({series: [{name: 'Gemiddelde', type: 'line', points: trend}],
+        title: 'Gemiddelde vraagprijs'}),
         {sub: 'Niet gecorrigeerd voor wisselend aanbod'})}
       ${card('Laatste controles', runs ? `<div class="list">${runs}</div>` : '<p class="muted">Nog geen controle.</p>',
         {actionsHtml: button('Alle controles', {href: '#/controles', variant: 'text', size: 's'})})}

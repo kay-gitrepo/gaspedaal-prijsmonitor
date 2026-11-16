@@ -20,6 +20,17 @@ export function go(page, id = null, params = null) {
   location.hash = href(page, id, params);
 }
 
+let lastList = '#/aanbod';
+
+/** Het adres van de laatst bekeken lijst, voor "Terug naar de lijst". */
+export function lastListHash() {
+  return lastList;
+}
+
+export function setLastList(hash) {
+  lastList = hash || '#/aanbod';
+}
+
 export function replace(page, id = null, params = null) {
   history.replaceState(null, '', href(page, id, params));
   window.dispatchEvent(new HashChangeEvent('hashchange'));

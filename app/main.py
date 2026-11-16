@@ -20,6 +20,7 @@ from app.config import settings
 from app.version import VERSION
 from app.db import connect, dumps, init_db, now, rowdict, uid
 from app.extraction import cleaned_text, sha256 as text_hash
+from app.insights import first_photo, listing_insights
 from app.provider import Snapshot, validate_search_url
 from app.scoring import negotiation_snapshot
 from app.worker import start_worker, stop_worker, get_criteria, recalculate_score, recalculate_all, apply_local_claims
@@ -444,25 +445,32 @@ def dashboard(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connect
             'with_text':len(with_text),
             'price_trend':trend}
 
+LIST_COLUMNS = ('''l.id,l.external_id,l.title,l.url,l.year,l.kilometers,l.trim,l.seller,l.price_eur,l.first_seen,
+    l.last_seen,l.updated_at,l.availability,l.favorite,l.analyzed_hash,l.score_total,l.score_must,l.score_nice,
+    l.eligibility,l.score_potential,l.evidence_coverage,l.must_present,l.must_count,l.must_unknown,l.must_absent,
+    l.status_keys_json,l.photos_json,l.description_source,TRIM(l.description)!='' AS has_text''')
+
+
 @app.get('/api/v1/listings')
 def listings(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
+    """List view without the ad text (B5): derived price and time fields, first photo only."""
     # Within one search, the availability shown is that search's own status (e.g. outside its new filters).
-    query='''SELECT l.*, (SELECT MIN(price_eur) FROM price_observations p WHERE p.listing_id=l.id) AS lowest_observed_price,
-          (SELECT COUNT(*) FROM price_observations p WHERE p.listing_id=l.id) AS observations,
-          TRIM(l.description)!='' AS has_text'''
     params=[]
     if profile_id:
-        query+=''',pl.status AS profile_status FROM listings l
+        query=f'''SELECT {LIST_COLUMNS},pl.status AS profile_status FROM listings l
           JOIN profile_listings pl ON pl.listing_id=l.id AND pl.profile_id=?
           ORDER BY (pl.status='ACTIVE') DESC''';params.append(profile_id)
     else:
-        query+=" FROM listings l ORDER BY (l.availability='ACTIVE') DESC"
+        query=f"SELECT {LIST_COLUMNS} FROM listings l ORDER BY (l.availability='ACTIVE') DESC"
     query+=',l.score_total DESC,l.price_eur ASC LIMIT 1000'
     items=[dict(r) for r in con.execute(query,params)]
     labels=criteria_labels(con)
     for item in items:
         if 'profile_status' in item:item['availability']=item.pop('profile_status')
         item['status_reason']=status_reason(item.pop('status_keys_json','{}'),labels)
+        item['photo']=first_photo(item.pop('photos_json'))
+    extra=listing_insights(con,items,profile_id)
+    for item in items:item.update(extra.get(item['id'],{}))
     return {'items':items}
 
 
@@ -494,6 +502,7 @@ def listing_detail(listing_id:str,_=Depends(require_ui),con=Depends(connection))
         WHERE cr.enabled=1 ORDER BY cr.group_name,cr.weight DESC,cr.label''',(listing_id,))]
     listing['status_reason']=status_reason(listing.pop('status_keys_json','{}'),criteria_labels(con))
     listing['notes']=[dict(r) for r in con.execute('SELECT * FROM negotiation_notes WHERE listing_id=? ORDER BY created_at DESC',(listing_id,))]
+    listing.update(listing_insights(con,[listing]).get(listing_id,{}))
     # Restrict comps to same model category, similar year and kilometers. Trim preference is conditional.
     comps=[dict(r) for r in con.execute("SELECT id,price_eur,year,kilometers,trim FROM listings WHERE availability='ACTIVE' AND id!=?",(listing_id,))]
     comps=[c for c in comps if (not row['year'] or not c['year'] or abs(c['year']-row['year'])<=2)
