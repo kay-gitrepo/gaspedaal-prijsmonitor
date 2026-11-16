@@ -24,6 +24,7 @@ const actions = Object.assign({}, ...MODULES.map(m => m.actions || {}));
 const submits = Object.assign({}, ...MODULES.map(m => m.submits || {}));
 const changes = Object.assign({}, ...MODULES.map(m => m.changes || {}));
 const inputs = Object.assign({}, ...MODULES.map(m => m.inputs || {}));
+const keydowns = Object.assign({}, ...MODULES.map(m => m.keydowns || {}));
 
 let renderedBase = null;
 let renderedQuery = '';
@@ -193,7 +194,15 @@ dialog.addEventListener('cancel', e => {
 dialog.addEventListener('click', e => {
   if (e.target === dialog) closeDetail();
 });
-document.addEventListener('keydown', e => {
+document.addEventListener('keydown', async e => {
+  const keyHandler = keydowns[e.target.dataset?.keydown];
+  if (keyHandler) {
+    try {
+      await keyHandler(e.target, e);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
   if (e.key === 'Escape' && $('#sidebar').classList.contains('show')) closeMenu();
   if (e.key === 'Escape') $$('details.menu[open]').forEach(m => m.removeAttribute('open'));
 });

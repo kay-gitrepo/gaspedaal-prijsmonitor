@@ -41,3 +41,16 @@ def test_hallucinated_evidence_downgraded_to_unknown(monkeypatch):
     result,_=classify('XC90 met 19-inch wielen',CRITERIA)
     assert result[0]['status']=='UNKNOWN'
     assert result[0]['evidence_quote'] is None
+
+
+def test_criterion_suggestion_is_cleaned(monkeypatch):
+    from app.gemini import suggest_criterion
+    model=FakeModel({'description':'  Elektrisch bedienbare   achterklep ','synonyms':['elektrische achterklep',
+                     'Elektrische achterklep','power tailgate','elektrische Heckklappe'],
+                     'match_terms':['elektrische achterklep'],'let_op':['Niet hetzelfde als handsfree openen']})
+    mock_google(monkeypatch,model)
+    result,log=suggest_criterion('Elektrische achterklep')
+    assert result['description']=='Elektrisch bedienbare achterklep'
+    assert result['synonyms']==['elektrische achterklep','power tailgate','elektrische Heckklappe']
+    assert result['match_terms']==['elektrische achterklep'] and result['let_op']
+    assert 'Elektrische achterklep' in model.calls[0]['contents'] and log['tokens_in']==135

@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 from uuid import uuid4
 from app.config import settings
+from app.extraction import DEFAULT_MATCH_TERMS
 
 
 def now():
@@ -278,6 +279,16 @@ def _m5_description_source(con):
 _m5_description_source.changes_data = True
 
 
+def _m6_criteria_terms(con):
+    """Safe local match terms per wish, and a log of AI suggestions for new wishes."""
+    add_column(con, 'criteria', 'match_terms_json', "TEXT NOT NULL DEFAULT '[]'")
+    for key, terms in DEFAULT_MATCH_TERMS.items():
+        con.execute("UPDATE criteria SET match_terms_json=? WHERE key=? AND match_terms_json='[]'", (dumps(terms), key))
+    con.execute('''CREATE TABLE IF NOT EXISTS criterion_suggestions (
+        id TEXT PRIMARY KEY, label TEXT NOT NULL, model_id TEXT, request_json TEXT, response_json TEXT,
+        parsed_json TEXT, tokens_in INTEGER, tokens_out INTEGER, duration_ms INTEGER, error TEXT, created_at TEXT NOT NULL)''')
+
+
 # (versie, functie). Functies met attribuut `changes_data = True` wijzigen bestaande rijen;
 # vóór de eerste daarvan wordt een back-up van het databasebestand gemaakt.
 MIGRATIONS = [
@@ -286,6 +297,7 @@ MIGRATIONS = [
     (3, _m3_vehicle_identity),
     (4, _m4_profile_management),
     (5, _m5_description_source),
+    (6, _m6_criteria_terms),
 ]
 
 
@@ -344,8 +356,10 @@ def init_db():
         migrate(con)
         if not con.execute('SELECT 1 FROM criteria LIMIT 1').fetchone():
             for key, label, group, weight, description, synonyms in DEFAULT_CRITERIA:
-                con.execute('INSERT INTO criteria VALUES (?,?,?,?,?,?,?,?)',
-                            (key, label, group, weight, description, dumps(synonyms), 1, now()))
+                con.execute('''INSERT INTO criteria(key,label,group_name,weight,description,synonyms_json,enabled,
+                               updated_at,match_terms_json) VALUES (?,?,?,?,?,?,?,?,?)''',
+                            (key, label, group, weight, description, dumps(synonyms), 1, now(),
+                             dumps(DEFAULT_MATCH_TERMS.get(key, []))))
     finally:
         con.close()
 

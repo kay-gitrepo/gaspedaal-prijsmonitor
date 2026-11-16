@@ -22,7 +22,7 @@ from app.db import connect, dumps, init_db, now, rowdict, uid
 from app.extraction import cleaned_text, sha256 as text_hash
 from app.provider import Snapshot, validate_search_url
 from app.scoring import negotiation_snapshot
-from app.worker import start_worker, stop_worker, get_criteria, recalculate_score
+from app.worker import start_worker, stop_worker, get_criteria, recalculate_score, recalculate_all, apply_local_claims
 
 ROOT = Path(__file__).parent
 
@@ -71,7 +71,19 @@ class CriterionBody(BaseModel):
     weight: int = Field(ge=1,le=5)
     description: str = Field(default='',max_length=350)
     synonyms: list[str] = Field(default_factory=list,max_length=30)
+    match_terms: list[str] = Field(default_factory=list,max_length=20)
     enabled: bool = True
+
+class CriterionCreate(BaseModel):
+    label: str = Field(min_length=2,max_length=90)
+    group_name: str = 'NICE_TO_HAVE'
+    weight: int = Field(default=3,ge=1,le=5)
+    description: str = Field(default='',max_length=350)
+    synonyms: list[str] = Field(default_factory=list,max_length=30)
+    match_terms: list[str] = Field(default_factory=list,max_length=20)
+
+class SuggestBody(BaseModel):
+    label: str = Field(min_length=2,max_length=90)
 
 class RefreshBody(BaseModel):
     scope: str | dict = 'all'
@@ -254,18 +266,83 @@ def import_snapshot(profile_id:str,snapshot:Snapshot,_=Depends(require_csrf),con
 def criteria(_=Depends(require_ui),con=Depends(connection)):
     return {'items':get_criteria(con)}
 
+def clean_terms(values):
+    out=[]
+    for v in values:
+        v=' '.join(str(v).split())[:80]
+        if v and v.lower() not in {x.lower() for x in out}:out.append(v)
+    return out
+
+
+def slug(text):
+    import re
+    import unicodedata
+    ascii_text=unicodedata.normalize('NFKD',text).encode('ascii','ignore').decode().lower()
+    return re.sub(r'[^a-z0-9]+','_',ascii_text).strip('_')[:40] or 'wens'
+
+
+@app.post('/api/v1/criteria',status_code=201)
+def create_criterion(body:CriterionCreate,_=Depends(require_csrf),con=Depends(connection)):
+    if body.group_name not in ('MUST_HAVE','NICE_TO_HAVE'):raise HTTPException(422,'Ongeldige groep')
+    base=slug(body.label);key=base;n=2
+    while con.execute('SELECT 1 FROM criteria WHERE key=?',(key,)).fetchone():
+        key=f'{base}_{n}';n+=1
+    con.execute('''INSERT INTO criteria(key,label,group_name,weight,description,synonyms_json,match_terms_json,enabled,
+                   updated_at) VALUES(?,?,?,?,?,?,?,1,?)''',
+                (key,body.label.strip(),body.group_name,body.weight,body.description.strip(),
+                 dumps(clean_terms(body.synonyms)),dumps(clean_terms(body.match_terms)),now()))
+    # New wish: recognise it locally right away; the next check asks the AI for the rest.
+    apply_local_claims(con,get_criteria(con),{key})
+    return {'key':key}
+
+@app.delete('/api/v1/criteria/{key}')
+def delete_criterion(key:str,_=Depends(require_csrf),con=Depends(connection)):
+    """Soft delete: the wish is switched off, its claims (including your own corrections) are kept."""
+    cur=con.execute('UPDATE criteria SET enabled=0,updated_at=? WHERE key=? AND enabled=1',(now(),key))
+    if not cur.rowcount:raise HTTPException(404,'Wens niet gevonden')
+    recalculate_all(con,get_criteria(con))
+    return {'deleted':key}
+
 @app.put('/api/v1/criteria/{key}')
 def update_criterion(key:str,body:CriterionBody,_=Depends(require_csrf),con=Depends(connection)):
     if body.group_name not in ('MUST_HAVE','NICE_TO_HAVE'):
         raise HTTPException(422,'Ongeldige groep')
-    if not con.execute('SELECT 1 FROM criteria WHERE key=?',(key,)).fetchone():
-        raise HTTPException(404,'Wens niet gevonden')
-    con.execute('''UPDATE criteria SET label=?,group_name=?,weight=?,description=?,synonyms_json=?,enabled=?,updated_at=?
-                   WHERE key=?''',
-                (body.label,body.group_name,body.weight,body.description,dumps(body.synonyms),int(body.enabled),now(),key))
-    # Criteria edits invalidate previous claims; do not silently preserve a stale score.
-    con.execute('UPDATE listings SET analyzed_hash=NULL')
-    return {'updated':key,'note':'Gemini-herbeoordeling wordt bij de volgende refresh uitgevoerd'}
+    old=con.execute('SELECT * FROM criteria WHERE key=?',(key,)).fetchone()
+    if not old:raise HTTPException(404,'Wens niet gevonden')
+    synonyms,terms=clean_terms(body.synonyms),clean_terms(body.match_terms)
+    meaning_changed=(body.description.strip()!=old['description'] or synonyms!=json.loads(old['synonyms_json'])
+                     or terms!=json.loads(old['match_terms_json'] or '[]'))
+    con.execute('''UPDATE criteria SET label=?,group_name=?,weight=?,description=?,synonyms_json=?,match_terms_json=?,
+                   enabled=?,updated_at=? WHERE key=?''',
+                (body.label.strip(),body.group_name,body.weight,body.description.strip(),dumps(synonyms),dumps(terms),
+                 int(body.enabled),now(),key))
+    criteria=get_criteria(con)
+    if meaning_changed:
+        # What counts as present changed: judge again (locally now, with AI at the next check).
+        con.execute('UPDATE listings SET analyzed_hash=NULL')
+        apply_local_claims(con,criteria,{key})
+    # Weight, group or on/off only change the arithmetic: recalculate now, keep every assessment.
+    recalculate_all(con,criteria)
+    return {'updated':key,'reassess':meaning_changed}
+
+@app.post('/api/v1/criteria/suggest')
+def suggest_criterion_terms(body:SuggestBody,_=Depends(require_csrf),con=Depends(connection)):
+    empty={'description':'','synonyms':[],'match_terms':[],'let_op':[]}
+    if not (settings.gemini_enabled and settings.gemini_api_key):
+        return {**empty,'ai_beschikbaar':False}
+    from app.gemini import suggest_criterion
+    sid=uid('cs')
+    try:
+        result,log=suggest_criterion(body.label)
+    except Exception as exc:
+        con.execute('INSERT INTO criterion_suggestions(id,label,model_id,error,created_at) VALUES(?,?,?,?,?)',
+                    (sid,body.label,settings.gemini_model,f'{type(exc).__name__}: aanroep mislukt',now()))
+        return {**empty,'ai_beschikbaar':True,'fout':'Het voorstel kon niet worden opgehaald. Vul zelf zoekwoorden in.'}
+    con.execute('''INSERT INTO criterion_suggestions(id,label,model_id,request_json,response_json,parsed_json,tokens_in,
+                   tokens_out,duration_ms,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)''',
+                (sid,body.label,log['model_id'],dumps(log['request']),log['response'],dumps(log['parsed']),
+                 log['tokens_in'],log['tokens_out'],log['duration_ms'],now()))
+    return {**result,'ai_beschikbaar':True}
 
 @app.post('/api/v1/refresh-runs')
 def enqueue_refresh(request:Request,body:RefreshBody,response:Response,

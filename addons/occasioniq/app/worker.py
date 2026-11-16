@@ -24,8 +24,43 @@ def get_criteria(con):
     for row in con.execute('SELECT * FROM criteria WHERE enabled=1 ORDER BY group_name,weight DESC').fetchall():
         item = dict(row)
         item['synonyms'] = json.loads(item.pop('synonyms_json'))
+        item['match_terms'] = json.loads(item.pop('match_terms_json', None) or '[]')
         result.append(item)
     return result
+
+
+def recalculate_all(con, criteria):
+    """Recompute scores from stored claims only: no new AI calls are needed for weight or group changes."""
+    for (listing_id,) in con.execute('SELECT id FROM listings').fetchall():
+        recalculate_score(con, listing_id, criteria)
+
+
+def apply_local_claims(con, criteria, keys):
+    """Immediately apply local recognition for the given wishes to every car (no AI, manual evidence untouched).
+
+    A PRESENT/ABSENT local result replaces an automatic claim; otherwise an existing claim is kept and a missing
+    one becomes UNKNOWN until the next check.
+    """
+    selected = [c for c in criteria if c['key'] in keys]
+    if not selected:
+        return
+    for row in con.execute('SELECT id,title,description FROM listings').fetchall():
+        local = local_claims(cleaned_text(row['title'], row['description'], criteria), selected)
+        for c in selected:
+            claim = local.get(c['key'])
+            old = con.execute('SELECT source FROM claims WHERE listing_id=? AND criterion_key=?',
+                              (row['id'], c['key'])).fetchone()
+            if old and (old['source'] == 'MANUAL_OVERRIDE' or not claim or claim['status'] not in ('PRESENT', 'ABSENT')):
+                continue
+            claim = claim or {'status': 'UNKNOWN', 'evidence_quote': None, 'confidence': 0,
+                              'reason_short': 'Niet aangetoond in toegestane advertentietekst'}
+            con.execute('''INSERT INTO claims(listing_id,criterion_key,status,evidence,reason,confidence,source,updated_at)
+                VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(listing_id,criterion_key) DO UPDATE SET status=excluded.status,
+                evidence=excluded.evidence,reason=excluded.reason,confidence=excluded.confidence,source=excluded.source,
+                updated_at=excluded.updated_at''',
+                (row['id'], c['key'], claim['status'], claim.get('evidence_quote'), claim.get('reason_short'),
+                 claim.get('confidence', 0), 'AD_TEXT', now()))
+        recalculate_score(con, row['id'], criteria)
 
 
 def recalculate_score(con, listing_id, criteria):
@@ -40,11 +75,14 @@ def analyze_listing(con, listing_id, run_id, criteria):
     row = con.execute('SELECT * FROM listings WHERE id=?',(listing_id,)).fetchone()
     if row is None: return 'MISSING'
     text = cleaned_text(row['title'], row['description'], criteria)
-    fingerprint = text_hash(text + dumps([{'key':c['key'],'group':c['group_name'],'weight':c['weight'],
-                  'description':c['description'],'synonyms':c['synonyms']} for c in criteria]) + settings.gemini_model + PROMPT_VERSION + ('gemini' if settings.gemini_api_key and settings.gemini_enabled else 'local'))
+    # Weight and group are deliberately not part of the fingerprint: changing them only needs a recalculation.
+    definitions = [{'key':c['key'],'description':c['description'],'synonyms':c['synonyms'],
+                    'match_terms':c.get('match_terms',[])} for c in sorted(criteria,key=lambda c:c['key'])]
+    fingerprint = text_hash(text + dumps(definitions) + settings.gemini_model + PROMPT_VERSION
+                            + ('gemini' if settings.gemini_api_key and settings.gemini_enabled else 'local'))
     if row['analyzed_hash'] == fingerprint:
         return 'CACHE_HIT'
-    local = local_claims(text)
+    local = local_claims(text, criteria)
     outstanding = [c for c in criteria if local.get(c['key'],{}).get('status') not in ('PRESENT','ABSENT')]
     all_claims = {c['key']:{'criterion_key':c['key'],'status':'UNKNOWN','confidence':0,
                   'evidence_quote':None,'reason_short':'Niet aangetoond in toegestane advertentietekst'} for c in criteria}
