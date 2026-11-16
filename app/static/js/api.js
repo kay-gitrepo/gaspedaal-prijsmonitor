@@ -1,9 +1,14 @@
-/* fetch-wrapper: sessiecookie + CSRF-header voor elke schrijfactie. */
+/* fetch-wrapper: sessiecookie + CSRF-header voor elke schrijfactie. Foutcodes worden nooit rauw getoond. */
 let csrf = null;
 
 export function setCsrf(token) {
   csrf = token;
 }
+
+const CODES = {
+  RUN_ALREADY_ACTIVE: 'Er loopt al een controle.',
+  IDEMPOTENCY_KEY_REUSED: 'Deze aanvraag is al eerder met andere gegevens gedaan.',
+};
 
 export class ApiError extends Error {
   constructor(message, status, detail) {
@@ -13,6 +18,15 @@ export class ApiError extends Error {
   }
 }
 
+function messageFor(status, d) {
+  if (Array.isArray(d)) return 'Controleer de ingevulde gegevens.';
+  if (d && typeof d === 'object') return d.message || CODES[d.code] || 'Er ging iets mis.';
+  if (typeof d === 'string' && d) return d;
+  if (status === 401) return 'Je bent niet (meer) ingelogd.';
+  if (status >= 500) return 'Er ging iets mis op de server.';
+  return 'Er ging iets mis.';
+}
+
 export async function api(path, {method = 'GET', body, headers = {}} = {}) {
   const opt = {method, credentials: 'same-origin', headers: {...headers}};
   if (body !== undefined) {
@@ -20,17 +34,18 @@ export async function api(path, {method = 'GET', body, headers = {}} = {}) {
     opt.body = JSON.stringify(body);
   }
   if (!['GET', 'HEAD'].includes(method) && csrf) opt.headers['X-CSRF-Token'] = csrf;
-  const r = await fetch('/api/v1' + path, opt);
+  let r;
+  try {
+    r = await fetch('/api/v1' + path, opt);
+  } catch {
+    throw new ApiError('De server is niet bereikbaar.', 0, null);
+  }
   let data;
   try {
     data = await r.json();
   } catch {
-    data = {detail: r.statusText};
+    data = {detail: null};
   }
-  if (!r.ok) {
-    const d = data.detail;
-    const message = typeof d === 'object' && d !== null ? (d.message || d.code || JSON.stringify(d)) : (d || r.statusText);
-    throw new ApiError(message, r.status, d);
-  }
+  if (!r.ok) throw new ApiError(messageFor(r.status, data.detail), r.status, data.detail);
   return data;
 }

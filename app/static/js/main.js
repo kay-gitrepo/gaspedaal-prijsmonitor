@@ -1,9 +1,9 @@
 /* Opstart, inloggen, router en gedelegeerde gebeurtenissen. Geen framework, geen build-stap. */
 import {api, setCsrf} from './api.js';
-import {esc} from './format.js';
 import {PAGES, parseHash, replace} from './router.js';
-import {$, $$, closeModalView, modalOpen, toast} from './ui.js';
-import {onRefreshAccepted, startRefresh} from './refresh.js';
+import {$, $$, closeDialogView, dialogOpen, errorState, skeletons, toast} from './ui.js';
+import {startRefresh, onRefreshAccepted} from './refresh.js';
+import {refreshProfileLabel} from './context.js';
 import * as overzicht from './pages/overzicht.js';
 import * as aanbod from './pages/aanbod.js';
 import * as auto from './pages/auto.js';
@@ -15,9 +15,9 @@ import * as instellingen from './pages/instellingen.js';
 
 const BASE = {overzicht, aanbod, wensen, zoekopdrachten, controles, 'ai-analyse': aiAnalyse, instellingen};
 const DETAIL = {auto: auto.showCar, controles: controles.showRun, 'ai-analyse': aiAnalyse.showIntegration};
-const LABELS = {
-  overzicht: 'Marktoverzicht', aanbod: 'Autoaanbod', zoekopdrachten: 'Zoekprofielen', wensen: 'Optieprofiel',
-  controles: 'Uitvoeringslog', 'ai-analyse': 'Gemini-integratie', instellingen: 'Home Assistant',
+const TITLES = {
+  overzicht: 'Overzicht', aanbod: 'Aanbod', wensen: 'Mijn wensen', zoekopdrachten: 'Zoekopdrachten',
+  controles: 'Controles', 'ai-analyse': 'AI-beoordeling', instellingen: 'Instellingen',
 };
 const MODULES = Object.values(BASE).concat([auto]);
 const actions = Object.assign({}, ...MODULES.map(m => m.actions || {}));
@@ -25,19 +25,32 @@ const submits = Object.assign({}, ...MODULES.map(m => m.submits || {}));
 const changes = Object.assign({}, ...MODULES.map(m => m.changes || {}));
 
 let renderedBase = null;
+let renderedQuery = '';
 let previous = null;
 let detailFromBase = false;
 
-async function renderBase(base) {
+function markNav(base, params) {
+  const key = base === 'aanbod' && params.get('shortlist') ? 'shortlist' : base;
+  $$('.nav-link[data-nav]').forEach(a => {
+    const active = a.dataset.nav === key;
+    a.classList.toggle('active', active);
+    if (active) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  });
+}
+
+export async function renderBase(base, params = parseHash().params) {
   renderedBase = base;
-  $$('.nav-link').forEach(a => a.classList.toggle('active', a.dataset.nav === base));
-  $('#crumb-active').textContent = LABELS[base];
-  $('.sidebar').classList.remove('show');
-  $('#content').innerHTML = '<div class="loading">Gegevens laden…</div>';
+  renderedQuery = params.toString();
+  markNav(base, params);
+  closeMenu();
+  document.title = `${TITLES[base]} · OccasionIQ`;
+  const page = BASE[base];
+  $('#content').innerHTML = page.skeleton ? page.skeleton() : skeletons.head() + skeletons.rows();
   try {
-    await BASE[base].render();
+    await page.render(params);
   } catch (e) {
-    $('#content').innerHTML = `<div class="notice warn">Laden mislukt: ${esc(e.message)}</div>`;
+    $('#content').innerHTML = errorState(e.message);
   }
 }
 
@@ -49,32 +62,46 @@ async function route() {
   }
   const detail = r.id ? DETAIL[r.page] : null;
   const base = r.page === 'auto' ? (renderedBase || 'aanbod') : r.page;
-  detailFromBase = Boolean(detail && previous && !previous.id && previous.page === base);
+  detailFromBase = Boolean(detail && previous && !previous.id && (previous.page === base));
   previous = r;
-  if (base !== renderedBase || (!detail && !modalOpen())) await renderBase(base);
+  const query = r.page === 'auto' ? renderedQuery : r.params.toString();
+  const sameBase = base === renderedBase && query === renderedQuery;
+  if (!sameBase || (!detail && !dialogOpen())) {
+    await renderBase(base, r.page === 'auto' ? new URLSearchParams(query) : r.params);
+  }
   if (!detail) {
-    closeModalView();
+    if (dialogOpen()) closeDialogView();
     return;
   }
   try {
     await detail(r.id);
   } catch (e) {
-    toast('Laden mislukt: ' + e.message);
+    closeDialogView();
+    toast(e.message, 'error');
   }
 }
 
-/** Sluit het detail via de route, zodat de terugknop en herladen hetzelfde doen. */
+/** Sluit een detailvenster via de route, zodat terugknop en herladen hetzelfde doen. */
 function closeDetail() {
-  if (detailFromBase) {
+  if (!parseHash().id) {
+    closeDialogView();
+  } else if (detailFromBase) {
     history.back();
   } else {
-    replace(renderedBase || 'overzicht');
+    const params = renderedQuery ? Object.fromEntries(new URLSearchParams(renderedQuery)) : null;
+    replace(renderedBase || 'overzicht', null, params);
   }
+}
+
+function closeMenu() {
+  $('#sidebar').classList.remove('show');
+  $('#menu-toggle').setAttribute('aria-expanded', 'false');
 }
 
 async function showApp() {
   $('#login').classList.add('hidden');
   $('#shell').classList.remove('hidden');
+  refreshProfileLabel();
   await route();
 }
 
@@ -82,13 +109,16 @@ async function initialize() {
   const sess = await api('/session');
   if (!sess.authenticated) {
     $('#login').classList.remove('hidden');
+    $('#password').focus();
     return;
   }
   setCsrf(sess.csrf);
   await showApp();
 }
 
-actions['refresh-all'] = () => startRefresh();
+actions['refresh-all'] = el => startRefresh('all', el);
+actions.retry = () => renderBase(renderedBase || 'overzicht');
+actions['close-menu'] = () => closeMenu();
 
 document.addEventListener('click', async e => {
   if (e.target.closest('[data-close]')) {
@@ -96,17 +126,16 @@ document.addEventListener('click', async e => {
     return;
   }
   const el = e.target.closest('[data-action]');
-  if (el && actions[el.dataset.action]) {
-    e.preventDefault();
-    try {
-      await actions[el.dataset.action](el, e);
-    } catch (err) {
-      toast(err.message);
-    }
-    return;
+  if (!el) return;
+  const own = dialogOpen() && $('#dialog').contains(el) ? {} : (BASE[renderedBase]?.actions || {});
+  const handler = own[el.dataset.action] || actions[el.dataset.action];
+  if (!handler) return;
+  e.preventDefault();
+  try {
+    await handler(el, e);
+  } catch (err) {
+    toast(err.message, 'error');
   }
-  const row = e.target.closest('tr[data-href]');
-  if (row && !e.target.closest('a,button,input,select,summary')) location.hash = row.dataset.href;
 });
 
 document.addEventListener('submit', async e => {
@@ -119,17 +148,21 @@ document.addEventListener('submit', async e => {
       $('#login-error').textContent = '';
       await showApp();
     } catch (err) {
-      $('#login-error').textContent = err.message;
+      $('#login-error').textContent = err.status === 401 ? 'Dit wachtwoord klopt niet.' : err.message;
     }
     return;
   }
   const handler = submits[form.dataset.submit];
   if (!handler) return;
   e.preventDefault();
+  const submitter = e.submitter;
+  submitter?.classList.add('loading');
   try {
-    await handler(form);
+    await handler(form, e);
   } catch (err) {
-    toast(err.message);
+    toast(err.message, 'error');
+  } finally {
+    submitter?.classList.remove('loading');
   }
 });
 
@@ -139,18 +172,22 @@ document.addEventListener('change', async e => {
   try {
     await handler(e.target);
   } catch (err) {
-    toast(err.message);
+    toast(err.message, 'error');
   }
 });
 
+const dialog = $('#dialog');
+dialog.addEventListener('cancel', e => {
+  e.preventDefault();
+  closeDetail();
+});
+dialog.addEventListener('click', e => {
+  if (e.target === dialog) closeDetail();
+});
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && modalOpen()) closeDetail();
+  if (e.key === 'Escape' && $('#sidebar').classList.contains('show')) closeMenu();
 });
-
-$('#modal-backdrop').addEventListener('click', e => {
-  if (e.target.id === 'modal-backdrop') closeDetail();
-});
-$('#top-refresh').addEventListener('click', () => startRefresh());
+$('#top-refresh').addEventListener('click', e => startRefresh('all', e.currentTarget));
 $('#logout').addEventListener('click', async () => {
   try {
     await api('/logout', {method: 'POST'});
@@ -158,15 +195,19 @@ $('#logout').addEventListener('click', async () => {
     location.reload();
   }
 });
-$('#menu-toggle').addEventListener('click', () => $('.sidebar').classList.toggle('show'));
+$('#menu-toggle').addEventListener('click', () => {
+  const open = $('#sidebar').classList.toggle('show');
+  $('#menu-toggle').setAttribute('aria-expanded', String(open));
+  if (open) $('#sidebar .nav-link')?.focus();
+});
 window.addEventListener('hashchange', () => {
   if (!$('#shell').classList.contains('hidden')) route();
 });
 onRefreshAccepted(() => {
-  if (['controles', 'overzicht'].includes(renderedBase) && !modalOpen()) renderBase(renderedBase);
+  if (['controles', 'overzicht'].includes(renderedBase) && !dialogOpen()) renderBase(renderedBase);
 });
 
 initialize().catch(e => {
   $('#login').classList.remove('hidden');
-  $('#login-error').textContent = 'Kan server niet bereiken: ' + e.message;
+  $('#login-error').textContent = 'Kan de server niet bereiken: ' + e.message;
 });

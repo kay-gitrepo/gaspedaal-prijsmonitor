@@ -181,7 +181,7 @@ def seed(con):
         con.execute("UPDATE refresh_runs SET state='COMPLETE',finished_at=?,summary_json=? WHERE id=?",
                     (done, dumps(stats), run_id))
         con.execute('''INSERT INTO run_events(run_id,stage,level,message,metrics_json,created_at)
-                       VALUES(?,?,?,?,?,?)''', (run_id, 'RUN', 'INFO', 'Controle afgerond: COMPLETE', dumps(stats), done))
+                       VALUES(?,?,?,?,?,?)''', (run_id, 'RUN', 'INFO', 'Controle afgerond: geslaagd', dumps(stats), done))
         con.execute('COMMIT')
     con.execute('''UPDATE listings SET availability=COALESCE((SELECT CASE
         WHEN SUM(p.status='ACTIVE')>0 THEN 'ACTIVE'

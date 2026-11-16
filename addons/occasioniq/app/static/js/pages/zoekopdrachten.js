@@ -1,68 +1,71 @@
 import {api} from '../api.js';
 import {esc} from '../format.js';
-import {$, closeModalView, head, modal, modalHead, tag, toast} from '../ui.js';
+import {$, badge, button, card, closeDialogView, dialogHead, emptyState, field, icon, notice, openDialog, pageHead,
+  skeletons, toast} from '../ui.js';
 import {startRefresh} from '../refresh.js';
+import {refreshProfileLabel} from '../context.js';
 
-function sourceLabel(x) {
-  if (x.provider === 'gaspedaal_site') return 'Gaspedaal zoeklink';
-  if (x.provider === 'gaspedaal') return 'JSON API';
-  return x.has_snapshot ? 'JSON snapshot' : 'Nog geen invoer';
+export function skeleton() {
+  return skeletons.head() + skeletons.block() + skeletons.cards(2);
+}
+
+function sourceBadge(x) {
+  if (x.provider === 'gaspedaal_site') return badge('Live via zoeklink', 'success');
+  if (x.provider === 'gaspedaal') return badge('Live via koppeling', 'success');
+  return x.has_snapshot ? badge('Eigen import', 'info') : badge('Nog geen gegevens', 'warning');
 }
 
 function profileCard(x, data) {
-  const sel = v => (x.provider === v ? 'selected' : '');
-  const options = ['<option value="fixture" ' + sel('fixture') + '>JSON import</option>'];
-  if (data.gaspedaal_site_available) {
-    options.push(`<option value="gaspedaal_site" ${sel('gaspedaal_site')}>Gaspedaal zoeklink</option>`);
-  }
-  if (data.gaspedaal_api_configured) options.push(`<option value="gaspedaal" ${sel('gaspedaal')}>JSON API</option>`);
-  const ok = x.provider !== 'fixture' || x.has_snapshot;
-  return `<div class="profile-card"><div class="profile-icon">⌕</div><div class="profile-info">
-    <strong>${esc(x.title)}</strong><small>${esc(x.search_url)}</small></div>${tag(sourceLabel(x), ok ? 'green' : 'amber')}
-    <button class="btn btn-sm" data-action="import" data-id="${esc(x.id)}">JSON importeren</button>
-    <select data-change="source" data-id="${esc(x.id)}" aria-label="Gegevensbron">${options.join('')}</select>
-    <button class="btn btn-secondary btn-sm" data-action="refresh-profile" data-id="${esc(x.id)}"
-      aria-label="Controleer deze zoekopdracht">↻</button></div>`;
+  const sel = v => (x.provider === v ? ' selected' : '');
+  const options = [`<option value="fixture"${sel('fixture')}>Eigen import (JSON)</option>`];
+  if (data.gaspedaal_site_available) options.push(`<option value="gaspedaal_site"${sel('gaspedaal_site')}>Zoeklink</option>`);
+  if (data.gaspedaal_api_configured) options.push(`<option value="gaspedaal"${sel('gaspedaal')}>Koppeling</option>`);
+  return `<section class="card"><div class="row-between"><div><h3>${esc(x.title)}</h3>
+    <a class="small" href="${esc(x.search_url)}" target="_blank" rel="noopener noreferrer">Open op Gaspedaal
+    ${icon('external', 'icon-sm')}</a></div><div class="row">${sourceBadge(x)}
+    ${button('Nu controleren', {icon: 'refresh', size: 's', action: 'refresh-profile', data: {id: x.id}})}</div></div>
+    <details class="disclosure"><summary>${icon('chevron-down')}Geavanceerd</summary><div class="form-grid">
+      <div class="field"><label for="src-${esc(x.id)}">Gegevensbron</label>
+        <select id="src-${esc(x.id)}" data-change="source" data-id="${esc(x.id)}">${options.join('')}</select></div>
+      <div>${button('Gegevens importeren', {icon: 'download', action: 'import', data: {id: x.id}})}</div>
+    </div></details></section>`;
 }
 
 export async function render() {
   const data = await api('/profiles');
   const live = data.gaspedaal_site_available;
-  $('#content').innerHTML = head('BRONBEHEER', 'Zoekprofielen',
-    'Plak de zoeklink van Gaspedaal. Experimentele directe uitlezing, een ingestelde JSON-API of handmatige JSON-import.')
-    + `<section class="card"><div class="card-head"><h3>Nieuw zoekprofiel</h3>
-      ${tag(live ? 'Directe URL-uitlezing ingeschakeld' : 'JSON-importmodus', live ? 'green' : 'amber')}</div>
-      <form data-submit="create-profile" class="form-grid">
-        <div class="field"><label for="p-title">Naam</label>
-          <input id="p-title" name="title" placeholder="XC90 Ultra 2025+" required minlength="2"></div>
-        <div class="field"><label for="p-url">Gaspedaal-zoek-URL</label>
-          <input id="p-url" name="search_url" type="url" placeholder="https://www.gaspedaal.nl/…" required></div>
-        <button class="btn btn-primary">Opslaan</button></form></section>
-    <section class="card"><div class="card-head"><h3>Opgeslagen zoekprofielen</h3>
-      <span class="micro">${data.items.length} profielen</span></div><div class="stack">
-      ${data.items.map(x => profileCard(x, data)).join('')
-        || '<p class="muted">Nog geen profiel. Voeg eerst een zoeklink toe.</p>'}</div></section>`;
+  const form = `<form data-submit="create-profile" class="form-grid" novalidate>
+    ${field({label: 'Naam', name: 'title', attrs: {required: true, minlength: 2, placeholder: 'Volvo XC90 vanaf 2025'}})}
+    ${field({label: 'Zoeklink van Gaspedaal', name: 'search_url', type: 'url',
+      attrs: {required: true, placeholder: 'https://www.gaspedaal.nl/…'}})}
+    <div>${button('Zoekopdracht toevoegen', {type: 'submit', variant: 'primary', icon: 'plus'})}</div></form>`;
+  const list = data.items.length ? data.items.map(x => profileCard(x, data)).join('')
+    : card('', emptyState({iconName: 'search', title: 'Nog geen zoekopdracht',
+      text: 'Voeg hierboven je eerste zoeklink toe.'}));
+  $('#content').innerHTML = pageHead('Zoekopdrachten', 'Welke markt volg je? Plak de zoeklink van Gaspedaal met je filters.')
+    + (live ? '' : notice('Directe uitlezing van Gaspedaal staat uit. Je kunt zoekopdrachten toevoegen en gegevens '
+      + 'importeren; zie Instellingen.', 'warning'))
+    + card('Nieuwe zoekopdracht', form) + `<div class="stack">${list}</div>`;
 }
 
-function importModal(id) {
-  const example = '{"complete":true,"listings":[{"external_id":"...","title":"...","price_eur":75000}]}';
-  modal(modalHead('Importeer JSON-snapshot', 'Alle advertenties uit deze invoer worden bij de volgende refresh verwerkt.')
-    + `<div class="notice warn">Een volledige snapshot met <code>complete:true</code> mag eerder aanwezige auto's als
-      verdwenen markeren. Gebruik <code>complete:false</code> voor onvolledige imports.</div>
-    <form data-submit="import" data-id="${esc(id)}" class="stack">
+function importDialog(id) {
+  const example = '{"complete":true,"listings":[{"external_id":"…","title":"…","price_eur":75000}]}';
+  openDialog(dialogHead('Gegevens importeren', 'Advertenties uit een JSON-bestand; ze worden bij de volgende controle verwerkt.')
+    + notice('Geef met <code>"complete": true</code> aan dat dit het volledige aanbod is. Dan mogen auto\'s die '
+      + 'ontbreken als niet meer gezien worden gemarkeerd. Bij twijfel: <code>"complete": false</code>.', 'warning')
+    + `<form data-submit="import" data-id="${esc(id)}" class="stack">
       <div class="field"><label for="json-file">JSON-bestand</label>
         <input id="json-file" type="file" accept="application/json,.json" data-change="json-file"></div>
-      <div class="field"><label for="json-text">JSON-inhoud</label>
-        <textarea id="json-text" rows="11" placeholder="${esc(example)}"></textarea></div>
-      <button class="btn btn-primary">Snapshot bewaren</button></form>`);
+      ${field({label: 'Of plak de inhoud', name: 'json', type: 'textarea', id: 'json-text', attrs: {placeholder: example}})}
+      <div>${button('Importeren', {type: 'submit', variant: 'primary'})}</div></form>`);
 }
 
 export const actions = {
   import(el) {
-    importModal(el.dataset.id);
+    importDialog(el.dataset.id);
   },
   'refresh-profile'(el) {
-    return startRefresh({profile_ids: [el.dataset.id]});
+    return startRefresh({profile_ids: [el.dataset.id]}, el);
   },
 };
 
@@ -81,8 +84,9 @@ export const submits = {
   async 'create-profile'(form) {
     const body = Object.fromEntries(new FormData(form));
     const r = await api('/profiles', {method: 'POST', body});
-    toast(r.provider === 'gaspedaal_site' ? 'Zoeklink toegevoegd; controleer de eerste run op brondekking.'
-      : 'Zoekprofiel toegevoegd. Importeer nu een snapshot.');
+    toast(r.provider === 'gaspedaal_site' ? 'Zoekopdracht toegevoegd. Start een controle om de auto\'s op te halen.'
+      : 'Zoekopdracht toegevoegd. Importeer nu gegevens via Geavanceerd.');
+    refreshProfileLabel();
     await render();
   },
   async import(form) {
@@ -90,11 +94,11 @@ export const submits = {
     try {
       obj = JSON.parse($('#json-text').value);
     } catch {
-      throw new Error('JSON is ongeldig');
+      throw new Error('De inhoud is geen geldige JSON.');
     }
     const r = await api('/profiles/' + encodeURIComponent(form.dataset.id) + '/snapshot', {method: 'POST', body: obj});
-    toast(`${r.imported} advertenties geïmporteerd`);
-    closeModalView();
+    toast(`${r.imported} advertenties geïmporteerd. Start een controle om ze te verwerken.`);
+    closeDialogView();
     await render();
   },
 };

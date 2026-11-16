@@ -115,7 +115,7 @@ def scan_profile(con,run_id,profile,criteria):
         prev=con.execute('SELECT COUNT(*) FROM profile_listings WHERE profile_id=? AND status=?',
                          (profile['id'],'ACTIVE')).fetchone()[0]
         if prev > 0:
-            raise RuntimeError('Lege scan terwijl eerder actief aanbod bestond: geen verdwijningen toegepast')
+            raise RuntimeError('Lege controle terwijl er eerder aanbod was: niets als verdwenen gemarkeerd')
     # One implausible price must not fail the whole profile: skip that ad, but still count it as seen.
     invalid=[ad for ad in snapshot.listings if not (settings.min_price <= ad.price_eur <= settings.max_price)]
     valid_ads=[ad for ad in snapshot.listings if settings.min_price <= ad.price_eur <= settings.max_price]
@@ -259,7 +259,7 @@ def scan_profile(con,run_id,profile,criteria):
             WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id AND p.status='ACTIVE') THEN 'ACTIVE'
             WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id AND p.status='MISSING_UNCONFIRMED') THEN 'MISSING_UNCONFIRMED'
             ELSE 'OFF_MARKET' END WHERE id IN (SELECT listing_id FROM profile_listings WHERE profile_id=?)''',(profile['id'],))
-        log_event(con,run_id,'SOURCE','INFO','Zoekprofiel verwerkt',{'profile_id':profile['id'],**stats})
+        log_event(con,run_id,'SOURCE','INFO','Zoekopdracht verwerkt',{'profile_id':profile['id'],**stats})
         con.execute('COMMIT')
     except Exception:
         con.execute('ROLLBACK')
@@ -281,21 +281,21 @@ def execute_run(run_id):
         con.execute('UPDATE refresh_runs SET state=?,started_at=? WHERE id=? AND state=?',('RUNNING',now(),run_id,'QUEUED'))
         run=con.execute('SELECT * FROM refresh_runs WHERE id=?',(run_id,)).fetchone()
         if run is None or run['state']!='RUNNING': return
-        log_event(con,run_id,'RUN','INFO','Refresh gestart')
+        log_event(con,run_id,'RUN','INFO','Controle gestart')
         scope=json.loads(run['scope_json'])
         profiles=con.execute('SELECT * FROM search_profiles WHERE enabled=1 ORDER BY title').fetchall()
         if scope!='all':
             allowed=set(scope.get('profile_ids',[]))
             profiles=[p for p in profiles if p['id'] in allowed]
         if not profiles:
-            raise RuntimeError('Geen actieve zoekprofielen voor deze run')
+            raise RuntimeError('Geen actieve zoekopdrachten voor deze controle')
         criteria=get_criteria(con)
         totals={'profiles':len(profiles),'profiles_ok':0,'profiles_partial':0,'profiles_failed':0,
                 'found':0,'new':0,'price_changes':0,'missing_new':0,'off_market_new':0,
                 'reappeared':0,'skipped_invalid':0,'observations':0,'gemini_calls':0,'gemini_errors':0,'cache_hits':0,'portals':0,'portal_price_changes':0}
         errors=[]
         for profile in profiles:
-            log_event(con,run_id,'PROFILE','INFO',f'Scan gestart: {profile["title"]}')
+            log_event(con,run_id,'PROFILE','INFO',f'Zoekopdracht wordt gecontroleerd: {profile["title"]}')
             try:
                 result=scan_profile(con,run_id,profile,criteria)
                 for key in totals.keys() & result.keys():
@@ -316,7 +316,7 @@ def execute_run(run_id):
             state='FAILED'
         con.execute('UPDATE refresh_runs SET state=?,finished_at=?,summary_json=?,error=? WHERE id=?',
                     (state,now(),dumps(totals),'\n'.join(errors)[:2000] if errors else None,run_id))
-        log_event(con,run_id,'RUN','INFO' if state=='COMPLETE' else 'WARN',f'Refresh afgerond: {state}',totals)
+        log_event(con,run_id,'RUN','INFO' if state=='COMPLETE' else 'WARN','Controle afgerond: '+{'COMPLETE':'geslaagd','PARTIAL':'gedeeltelijk'}.get(state,'mislukt'),totals)
     except Exception as exc:
         error=f'{type(exc).__name__}: {str(exc)[:500]}'
         con.execute('UPDATE refresh_runs SET state=?,finished_at=?,error=? WHERE id=?',('FAILED',now(),error,run_id))

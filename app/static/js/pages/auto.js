@@ -1,102 +1,96 @@
-/* Autodetail (in WP-01 nog als modaal venster, geopend via #/auto/<id>). */
+/* Autodetail als dialoog (#/auto/<id>). In WP-08 wordt dit een eigen pagina. */
 import {api} from '../api.js';
-import {esc, euro, fmt, dt} from '../format.js';
+import {datum, esc, euro, fmt, dt} from '../format.js';
 import {chart} from '../charts.js';
-import {$, $$, eligibility, modal, modalHead, table, tag, toast} from '../ui.js';
+import {AVAILABILITY, CLAIM, CLAIM_SOURCE, ELIGIBILITY, GROUP, label} from '../labels.js';
+import {$, $$, button, card, dialogHead, field, icon, openDialog, segment, statusBadge, table, toast} from '../ui.js';
 import {photosOf} from './aanbod.js';
-
-const CLAIM_LABEL = {PRESENT: 'Aanwezig', ABSENT: 'Afwezig', UNKNOWN: 'Onbekend', CONFLICT: 'Tegenstrijdig'};
-const CLAIM_TYPE = {PRESENT: 'green', ABSENT: 'red', UNKNOWN: 'grey', CONFLICT: 'amber'};
 
 function gallery(x) {
   const ph = photosOf(x);
-  if (!ph.length) return '<p class="micro">Geen foto’s beschikbaar in de bron.</p>';
-  const strip = ph.map((u, i) => `<img class="gallery-thumb${i ? '' : ' active'}" data-action="photo"
-    data-photo="${esc(u)}" loading="lazy" referrerpolicy="no-referrer" src="${esc(u)}" alt="Foto ${i + 1}">`).join('');
-  return `<section class="card gallery"><img id="gallery-main" class="gallery-main" referrerpolicy="no-referrer"
-    src="${esc(ph[0])}" alt="">${ph.length > 1 ? `<div class="gallery-strip">${strip}</div>` : ''}
-    <p class="micro">${ph.length} foto${ph.length === 1 ? '' : '’s'}</p></section>`;
+  if (!ph.length) return '';
+  const strip = ph.map((u, i) => `<button type="button" class="gallery-thumb" data-action="photo" data-photo="${esc(u)}"
+    aria-label="Foto ${i + 1} tonen"${i ? '' : ' aria-current="true"'}><img loading="lazy" referrerpolicy="no-referrer"
+    src="${esc(u)}" alt=""></button>`).join('');
+  return card('', `<img id="gallery-main" class="gallery-main" referrerpolicy="no-referrer" src="${esc(ph[0])}"
+    alt="Foto van ${esc(x.title)}">${ph.length > 1 ? `<div class="gallery-strip">${strip}</div>` : ''}`);
 }
 
 function sourceLinks(o) {
-  const l = [];
+  const links = [];
   if (o.source_url) {
-    l.push(`<a class="btn btn-sm" target="_blank" rel="noopener noreferrer" href="${esc(o.source_url)}">
-      Advertentie bij ${esc(o.site)} ↗</a>`);
+    links.push(button(`Bij ${o.site}`, {href: o.source_url, size: 's', icon: 'external',
+      attrs: {target: '_blank', rel: 'noopener noreferrer'}}));
   }
   if (o.click_url && o.click_url !== o.source_url) {
-    const label = o.source_url ? 'Via Gaspedaal' : 'Bekijk bij ' + esc(o.site);
-    l.push(`<a class="btn btn-sm" target="_blank" rel="noopener noreferrer" href="${esc(o.click_url)}">${label} ↗</a>`);
+    links.push(button(o.source_url ? 'Via Gaspedaal' : `Bij ${o.site}`, {href: o.click_url, size: 's', icon: 'external',
+      attrs: {target: '_blank', rel: 'noopener noreferrer'}}));
   }
-  return l.join(' ') || 'Onbekend';
+  return `<div class="row">${links.join('') || '<span class="muted">Geen link</span>'}</div>`;
 }
 
 function negotiation(neg) {
-  const cell = (label, value) => `<div><div class="micro">${label}</div><h3>${euro(value)}</h3></div>`;
-  return `<section class="card"><div class="card-head"><h3>Onderhandelingsinformatie</h3>
-    ${tag(neg.sample_size + ' vergelijkbare auto\'s', 'grey')}</div>
-    <div class="stats stats-compact">${cell('Mediaan aanbod', neg.median_asking)}
-    ${cell('Verschil mediaan', neg.difference_vs_median_eur)}
-    ${cell('Indicatief openingsbod', neg.illustrative_opening_offer)}
-    ${cell('Indicatieve streefprijs', neg.illustrative_target)}</div><p class="micro">${esc(neg.assessment)}</p></section>`;
+  if (!neg.sample_size) {
+    return card('Onderhandelen', '<p class="muted">Te weinig vergelijkbare auto\'s voor een indicatie.</p>');
+  }
+  const facts = [['Mediane vraagprijs vergelijkbaar', euro(neg.median_asking)],
+    ['Verschil met mediaan', euro(neg.difference_vs_median_eur)],
+    ['Openingsbod (indicatie)', euro(neg.illustrative_opening_offer)],
+    ['Streefprijs (indicatie)', euro(neg.illustrative_target)]];
+  return card('Onderhandelen', `<dl class="facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}
+    </dl><p class="muted small">Indicatie op basis van vraagprijzen van ${fmt(neg.sample_size)} vergelijkbare auto's
+    (n = ${fmt(neg.sample_size)}). Geen verkoopprijzen.</p>`);
 }
 
-function claimRow(id, c) {
-  const options = Object.entries(CLAIM_LABEL).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
-  return `<div class="option-claim"><div><strong>${esc(c.label)}</strong>
-    <span class="micro">${c.group_name === 'MUST_HAVE' ? 'VERPLICHT' : 'NICE-TO-HAVE'}</span>
-    <p class="micro">${esc(c.evidence || c.reason || 'Geen expliciete vermelding')} · ${esc(c.source)}</p></div>
-    <div class="inline-actions">${tag(CLAIM_LABEL[c.status], CLAIM_TYPE[c.status])}
-    <details class="review"><summary class="btn btn-sm">Corrigeer</summary>
-      <form data-submit="review" data-id="${esc(id)}" data-key="${esc(c.criterion_key)}" class="review-form">
-        <select name="status" aria-label="Status">${options}</select>
-        <input name="evidence" placeholder="Bewijs of dealerbevestiging (optioneel)" maxlength="400">
-        <button class="btn btn-sm btn-primary">Opslaan</button></form></details></div></div>`;
+function claimItem(id, c) {
+  const options = [['PRESENT', 'Aanwezig'], ['ABSENT', 'Afwezig'], ['UNKNOWN', 'Onbekend'], ['CONFLICT', 'Tegenstrijdig']];
+  const quote = c.evidence ? `“${esc(c.evidence)}”` : esc(c.reason || 'Niet genoemd in de advertentie');
+  return `<div class="list-item"><div><strong>${esc(c.label)}</strong>
+    <span class="muted small"> · ${esc(label(GROUP, c.group_name))}</span>
+    <p>${quote} · ${esc(label(CLAIM_SOURCE, c.source, 'Uit de advertentie'))}</p>
+    <details class="disclosure"><summary>${icon('chevron-down')}Corrigeren</summary>
+      <form class="claim-form" data-submit="review" data-id="${esc(id)}" data-key="${esc(c.criterion_key)}">
+        ${segment('status', options, c.status, {label: `Oordeel over ${c.label}`})}
+        <input class="input" name="evidence" maxlength="400" aria-label="Bron of toelichting"
+          placeholder="Bron, bijvoorbeeld: dealer bevestigd per mail">
+        ${button('Opslaan', {type: 'submit', variant: 'primary', size: 's'})}</form></details></div>
+    ${statusBadge(CLAIM, c.status)}</div>`;
 }
 
 export async function showCar(id) {
   const x = await api('/listings/' + encodeURIComponent(id));
   const claims = x.claims || [];
   const sources = x.sources || [];
-  const sub = `${x.year || '—'} · ${fmt(x.kilometers)} km · ${x.seller || 'Onbekende verkoper'}`;
-  const history = x.history.map(o => ({...o, date: dt(o.observed_at), mean_asking: o.price_eur}));
-  const sourceRows = sources.map(o => `<tr><td><strong>${esc(o.site)}</strong><br>
-    <span class="micro">${esc(o.kind || 'Aanbieder')}</span></td><td>${euro(o.price_eur)}</td>
-    <td>${sourceLinks(o)}</td><td>${fmt(o.history.length)}</td></tr>`);
-  const fetches = (x.detail_fetches || []).map(d => `<p class="micro">${dt(d.created_at)} · ${esc(d.status)} ·
-    ${fmt(d.text_length)} tekens · ${esc(d.error || '')}</p>`).join('');
-  const notes = x.notes.map(n => `<p class="micro">${dt(n.created_at)} · ${euro(n.offer_eur)} · ${esc(n.note)}</p>`);
-  modal(modalHead(x.title, sub) + `
-    <div class="inline-actions detail-actions"><strong class="detail-price">${euro(x.price_eur)}</strong>
-      ${eligibility(x.eligibility)}
-      <button class="btn btn-sm" data-action="favorite" data-id="${esc(id)}">
-        ${x.favorite ? '★ Verwijder favoriet' : '☆ Favoriet'}</button>
-      <button class="btn btn-sm" data-action="goto" data-target="aanbieders">
-        Bekijk advertentie bij ${sources.length || 'alle'} aanbieders ↓</button></div>
+  const sub = `${x.year || 'Bouwjaar onbekend'} · ${fmt(x.kilometers)} km · ${x.seller || 'Verkoper onbekend'}`;
+  const history = x.history.map(o => ({date: datum(o.observed_at), value: o.price_eur}));
+  const sourceRows = sources.map(o => [`<strong>${esc(o.site)}</strong>`, euro(o.price_eur), sourceLinks(o),
+    fmt(o.history.length)]);
+  const sourceCols = [{label: 'Aanbieder', main: true}, {label: 'Vraagprijs', num: true}, {label: 'Advertentie'},
+    {label: 'Metingen', num: true}];
+  const notes = x.notes.map(n => `<div class="list-item"><div><strong>${esc(n.note)}</strong>
+    <p>${dt(n.created_at)}${n.offer_eur ? ' · bod ' + euro(n.offer_eur) : ''}</p></div></div>`).join('');
+  const firstLink = sources.find(o => o.source_url || o.click_url);
+  const adLink = firstLink ? button('Bekijk advertentie', {href: firstLink.source_url || firstLink.click_url,
+    icon: 'external', attrs: {target: '_blank', rel: 'noopener noreferrer'}}) : '';
+  openDialog(dialogHead(x.title, sub) + `
+    <div class="detail-top"><span class="detail-price">${euro(x.price_eur)}</span>
+      ${statusBadge(ELIGIBILITY, x.eligibility)}${statusBadge(AVAILABILITY, x.availability)}
+      ${button(x.favorite ? 'Van shortlist halen' : 'Op shortlist', {icon: 'star', action: 'favorite',
+        data: {id}, attrs: {'aria-pressed': x.favorite ? 'true' : 'false'}})}${adLink}</div>
     ${gallery(x)}
-    <div class="detail-grid"><section class="card"><div class="card-head"><h3>Prijsgeschiedenis</h3>
-      <span class="micro">${x.history.length} metingen</span></div>${chart(history)}</section>
-      ${negotiation(x.negotiation)}</div>
-    <section class="card" id="aanbieders"><div class="card-head"><h3>Alle aanbieders van deze auto</h3>
-      <span class="micro">${sources.length} aanbieders</span></div>
-      ${sources.length ? table(['Aanbieder', 'Vraagprijs', 'Links', 'Prijsmetingen'], sourceRows)
-        : '<p class="muted">Deze gegevensbron heeft geen individuele aanbieders meegegeven.</p>'}
-      ${fetches ? `<details><summary class="micro">Log originele advertentietekst</summary>${fetches}</details>` : ''}
-    </section>
-    <section class="card"><div class="card-head"><h3>Uitrusting en AI-bewijs</h3>
-      <span class="micro">Matchscore: ${fmt(x.score_total)}%</span></div>
-      ${claims.map(c => claimRow(id, c)).join('') || '<p class="muted">Nog niet beoordeeld.</p>'}</section>
-    <section class="card"><div class="card-head"><h3>Onderhandelingsnotities</h3></div>
-      <form data-submit="note" data-id="${esc(id)}" class="form-grid note-form">
-        <div class="field"><label>Bod (€)</label><input name="offer_eur" type="number" min="0"></div>
-        <div class="field"><label>Notitie</label>
-          <input name="note" required placeholder="Dealer gesproken, voorwaarden, voorstel…"></div>
-        <button class="btn btn-primary">Opslaan</button></form>
-      ${notes.join('')}
-    </section>`);
-  $$('.review-form select').forEach((s, i) => {
-    s.value = claims[i].status;
-  });
+    <div class="detail-grid">
+      ${card('Prijsverloop', chart(history, {title: 'Vraagprijs'}), {sub: `${fmt(x.history.length)} metingen`})}
+      ${negotiation(x.negotiation)}
+    </div>
+    ${card('Aanbieders', sources.length ? table(sourceCols, sourceRows)
+      : '<p class="muted">De bron gaf geen afzonderlijke aanbieders mee.</p>', {id: 'aanbieders'})}
+    ${card('Uitrusting', claims.length ? `<div class="list">${claims.map(c => claimItem(id, c)).join('')}</div>`
+      : '<p class="muted">Nog niet beoordeeld.</p>', {sub: `Match ${fmt(x.score_total)}%`})}
+    ${card('Notities', `<form data-submit="note" data-id="${esc(id)}" class="form-grid">
+      ${field({label: 'Bod (€)', name: 'offer_eur', type: 'number', attrs: {min: 0}})}
+      ${field({label: 'Notitie', name: 'note', attrs: {required: true, placeholder: 'Bijvoorbeeld: dealer gebeld'}})}
+      ${button('Notitie opslaan', {type: 'submit', variant: 'primary'})}</form>
+      ${notes ? `<div class="list">${notes}</div>` : ''}`)}`);
 }
 
 export const actions = {
@@ -107,10 +101,7 @@ export const actions = {
   photo(el) {
     const main = $('#gallery-main');
     if (main) main.src = el.dataset.photo;
-    $$('.gallery-thumb').forEach(i => i.classList.toggle('active', i === el));
-  },
-  goto(el) {
-    document.getElementById(el.dataset.target)?.scrollIntoView({behavior: 'smooth', block: 'start'});
+    $$('.gallery-thumb').forEach(i => i.setAttribute('aria-current', String(i === el)));
   },
 };
 
@@ -119,13 +110,14 @@ export const submits = {
     const d = Object.fromEntries(new FormData(form));
     const body = {criterion_key: form.dataset.key, status: d.status, evidence: d.evidence || null};
     await api('/listings/' + encodeURIComponent(form.dataset.id) + '/review', {method: 'POST', body});
-    toast('Correctie opgeslagen');
+    toast('Oordeel opgeslagen');
     await showCar(form.dataset.id);
   },
   async note(form) {
     const d = Object.fromEntries(new FormData(form));
     const body = {offer_eur: d.offer_eur ? Number(d.offer_eur) : null, note: d.note};
     await api('/listings/' + encodeURIComponent(form.dataset.id) + '/notes', {method: 'POST', body});
+    toast('Notitie opgeslagen');
     await showCar(form.dataset.id);
   },
 };

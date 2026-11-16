@@ -1,46 +1,67 @@
 <!doctype html>
 <html lang="nl">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#101b2e"><title>Occasion Intelligence · Prijsmonitor</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#152037">
+  <title>OccasionIQ</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <section id="login" class="login-screen hidden">
     <form id="login-form" class="login-panel">
-      <div class="brand-mark">◆</div><p class="eyebrow">PERSONAL CAR INTELLIGENCE</p>
-      <h1>Jouw occasionmarkt.<br>Volledig inzicht.</h1>
+      <div class="logo">
+        <div class="logo-mark"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#logo"/></svg></div>
+        <div><strong>Occasion<span>IQ</span></strong><small>Prijs- en aankoopanalyse</small></div>
+      </div>
+      <h1>Jouw occasionmarkt in beeld</h1>
       <p>Volg vraagprijzen, vergelijk uitrusting en onderhandel met feiten.</p>
-      <label for="password">Beheerwachtwoord</label>
-      <input id="password" type="password" autocomplete="current-password" required placeholder="Wachtwoord">
-      <button class="btn btn-primary" type="submit">Inloggen →</button>
-      <small id="login-error" class="error-text"></small>
+      <div class="field">
+        <label for="password">Wachtwoord</label>
+        <input id="password" type="password" autocomplete="current-password" required aria-describedby="login-error">
+        <span id="login-error" class="error" role="alert"></span>
+      </div>
+      <button class="btn btn-primary" type="submit">Inloggen</button>
     </form>
   </section>
   <div id="shell" class="shell hidden">
-    <aside class="sidebar">
-      <div class="logo"><div class="logo-icon">◆</div><div><strong>Occasion<span>IQ</span></strong><small>PRIJS & AANKOOPANALYSE</small></div></div>
-      <div class="nav-heading">WERKRUIMTE</div>
-      <nav id="nav">
-        <a href="#/overzicht" data-nav="overzicht" class="nav-link"><span>◫</span> Overzicht</a>
-        <a href="#/aanbod" data-nav="aanbod" class="nav-link"><span>▤</span> Autoaanbod</a>
-        <a href="#/zoekopdrachten" data-nav="zoekopdrachten" class="nav-link"><span>⌕</span> Zoekprofielen</a>
-        <a href="#/wensen" data-nav="wensen" class="nav-link"><span>✦</span> Mijn opties</a>
-        <div class="nav-heading nested">INTEGRATIES</div>
-        <a href="#/controles" data-nav="controles" class="nav-link"><span>↻</span> Uitvoeringslog</a>
-        <a href="#/ai-analyse" data-nav="ai-analyse" class="nav-link"><span>✳</span> Gemini-log</a>
-        <a href="#/instellingen" data-nav="instellingen" class="nav-link"><span>⚙</span> Home Assistant</a>
+    <aside class="sidebar" id="sidebar" aria-label="Hoofdmenu">
+      <div class="logo">
+        <div class="logo-mark"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#logo"/></svg></div>
+        <div><strong>Occasion<span>IQ</span></strong><small>Prijs- en aankoopanalyse</small></div>
+      </div>
+      <nav class="nav-group" aria-label="Werkruimte">
+        <a href="#/overzicht" data-nav="overzicht" class="nav-link"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#overzicht"/></svg>Overzicht</a>
+        <a href="#/aanbod" data-nav="aanbod" class="nav-link"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#car"/></svg>Aanbod</a>
+        <a href="#/aanbod?shortlist=1" data-nav="shortlist" class="nav-link"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#star"/></svg>Shortlist</a>
+        <a href="#/wensen" data-nav="wensen" class="nav-link"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#wensen"/></svg>Mijn wensen</a>
+        <a href="#/zoekopdrachten" data-nav="zoekopdrachten" class="nav-link"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#search"/></svg>Zoekopdrachten</a>
       </nav>
-      <div class="sidebar-bottom"><span class="online-dot"></span><span>Lokaal gehost</span><button id="logout" title="Uitloggen">Uitloggen</button></div>
+      <div class="nav-heading" id="nav-beheer">Beheer</div>
+      <nav class="nav-group" aria-labelledby="nav-beheer">
+        <a href="#/controles" data-nav="controles" class="nav-link"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#refresh"/></svg>Controles</a>
+        <a href="#/ai-analyse" data-nav="ai-analyse" class="nav-link"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#sparkles"/></svg>AI-beoordeling</a>
+        <a href="#/instellingen" data-nav="instellingen" class="nav-link"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#settings"/></svg>Instellingen</a>
+      </nav>
+      <div class="sidebar-bottom">
+        <button id="logout" type="button" class="nav-link"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#log-out"/></svg>Uitloggen</button>
+      </div>
     </aside>
+    <div class="scrim" data-action="close-menu"></div>
     <div class="content-area">
-      <header class="topbar"><button id="menu-toggle" class="mobile-menu" aria-label="Menu">☰</button><div class="crumb">VOLVO XC90 <span>/</span> <span id="crumb-active">Marktoverzicht</span></div><div class="top-actions"><span class="source-tag">◉ Configureerbare databron</span><button id="top-refresh" class="btn btn-primary">↻ &nbsp; Nu verversen</button></div></header>
-      <main id="content"><div class="loading">Dashboard laden…</div></main>
-      <footer>OccasionIQ · Vraagprijzen zijn geen gerealiseerde verkoopprijzen. Verdwenen advertenties zijn geen verkoopbewijs.</footer>
+      <header class="topbar">
+        <button id="menu-toggle" type="button" class="btn btn-text btn-icon mobile-menu" aria-label="Menu openen" aria-controls="sidebar" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#menu"/></svg></button>
+        <div class="topbar-context"><span class="label">Zoekopdracht</span><strong id="current-profile">—</strong></div>
+        <div class="topbar-actions">
+          <button id="top-refresh" type="button" class="btn btn-primary"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#refresh"/></svg><span class="btn-label">Nu controleren</span></button>
+        </div>
+      </header>
+      <main id="content" tabindex="-1"></main>
+      <footer class="app-footer">OccasionIQ · Vraagprijzen zijn geen verkoopprijzen. Een verdwenen advertentie is geen bewijs van verkoop.</footer>
     </div>
   </div>
-  <div id="modal-backdrop" class="modal-backdrop hidden"><div id="modal" class="modal" role="dialog" aria-modal="true"></div></div>
-  <div id="toast" class="toast hidden"></div>
+  <dialog id="dialog" class="dialog"></dialog>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
   <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>

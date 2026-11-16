@@ -96,3 +96,14 @@ def test_frontend_assets_and_authentication():
         ok=client.post('/api/v1/login',json={'password':'not-a-real-password'})
         assert ok.status_code==200
         assert client.post('/api/v1/profiles',json={'title':'Test','search_url':'https://gaspedaal.nl/volvo'}).status_code==403
+
+
+def test_system_status_never_exposes_secrets():
+    with TestClient(app) as client:
+        assert client.get('/api/v1/system').status_code==401
+        client.post('/api/v1/login',json={'password':'not-a-real-password'})
+        data=client.get('/api/v1/system').json()
+        assert data['live_source'] is False and data['ai_enabled'] is False
+        text=str(data)
+        for secret in ('not-a-real-password','not-a-real-secret','not-a-real-ha-refresh-token'):
+            assert secret not in text

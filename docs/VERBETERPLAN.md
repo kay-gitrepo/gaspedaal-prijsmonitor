@@ -117,7 +117,7 @@ Werk van boven naar beneden. Werk deze tabel bij na elk WP (`☐` → `☑`, met
 |---|---|---|---|---|
 | 01 | Fundament: dev-omgeving, migraties, frontend in modules, adressen per scherm | U1 | Sonnet | ☑ 16-11-2026 · 0.5.0 |
 | 02 | Betrouwbare voertuigidentiteit en scanrobuustheid | B1 B2 B4 F8 | **Opus** | ☑ 16-11-2026 · 0.6.0 |
-| 03 | Ontwerpsysteem, navigatie en taal | U3 U5 U6 U8 U9 | Sonnet | ☐ |
+| 03 | Ontwerpsysteem, navigatie en taal | U3 U5 U6 U8 U9 | Sonnet | ☑ 16-11-2026 · 0.7.0 |
 | 04 | Zoekopdrachten beheren, kiezen en budget | F12 F13 F14 U6 | Sonnet | ☐ |
 | 05 | Advertentietekst beschikbaar krijgen | F1 | Sonnet (eerst nagaan: Opus) | ☐ |
 | 06 | Mijn wensen: toevoegen, synoniemen, direct herrekenen | F2 F3 B3 | Sonnet | ☐ |
@@ -190,6 +190,7 @@ Na WP-08 is de app in dagelijks gebruik merkbaar beter; WP-10 en WP-11 leveren d
 
 - **Tokens** als CSS-variabelen op `:root`: kleuren (behoud navy `#152037` en teal `#24baa7` als merk; voeg semantische kleuren toe: succes, waarschuwing, gevaar, info, elk met tekst-, vlak- en randtint), afstanden op een raster van 4 px (`--s1: 4px` … `--s8: 48px`), radius (6 / 10 / 14), schaduw (maximaal twee niveaus), lettergroottes (12 / 13 / 14 / 16 / 20 / 28).
 - **Lettertype:** Inter Variable (OFL-licentie) zelf gehost in `app/static/fonts/` met `@font-face` en `font-display: swap`. Lukt downloaden niet, gebruik dan `system-ui, "Segoe UI", Roboto, sans-serif`. Verwijder in beide gevallen alle verwijzingen naar Manrope en DM Sans. Nooit via een CDN.
+  > **Uitvoering (16-11-2026):** Inter is niet gedownload (downloaden van een extern bestand vraagt eerst akkoord van de gebruiker). De terugval `system-ui, "Segoe UI", Roboto, sans-serif` staat in `--font`; Inter toevoegen = bestand in `app/static/fonts/` plus `@font-face` en `--font` aanpassen.
 - **Kleinste tekst 12 px.** Secundaire tekst minimaal contrast 4,5:1 op wit. Getallen in tabellen en kaarten: `font-variant-numeric: tabular-nums`, rechts uitgelijnd.
 - **Iconen:** één SVG-sprite `app/static/icons.svg` met ongeveer twintig lijn-iconen in Lucide-stijl (ISC-licentie; 24 px, lijndikte 1,75), gebruikt via `<svg><use href="/static/icons.svg#naam"/></svg>`. Vervang alle Unicode-tekens die als icoon dienen.
 - **Componenten** in `ui.js` + CSS, elk met hover-, focus- (`:focus-visible`-ring), uitgeschakelde en ladende toestand:

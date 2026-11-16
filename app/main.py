@@ -120,6 +120,17 @@ def index():return FileResponse(ROOT/'static'/'index.html')
 @app.get('/health')
 def health():return {'status':'ok','version':VERSION,'live_gaspedaal_configured':bool(settings.data_source_approved)}
 
+@app.get('/api/v1/system')
+def system(_=Depends(require_ui)):
+    """Configuration status for the settings screen: booleans and limits only, never secrets."""
+    return {'version':VERSION,'live_source':bool(settings.data_source_approved),
+            'api_configured':bool(settings.data_source_approved and settings.gaspedaal_api_search_template),
+            'ai_enabled':bool(settings.gemini_enabled and settings.gemini_api_key),'ai_model':settings.gemini_model,
+            'max_ai_calls_per_run':settings.max_gemini_calls_per_run,
+            'detail_hosts':[h.strip() for h in settings.advertiser_detail_hosts.split(',') if h.strip()],
+            'max_detail_fetches_per_run':settings.max_detail_fetches_per_run,
+            'disappearance_days':settings.disappearance_days}
+
 @app.get('/api/v1/session')
 def session(request:Request):
     data=session_data(request)
@@ -159,24 +170,24 @@ def change_profile_source(profile_id:str,body:SourceBody,_=Depends(require_csrf)
     if body.provider not in ('fixture','gaspedaal','gaspedaal_site'):
         raise HTTPException(422,'Onbekende gegevensbron')
     if body.provider=='gaspedaal_site' and not settings.data_source_approved:
-        raise HTTPException(422,'Activeer DATA_SOURCE_APPROVED voor directe Gaspedaal URL-uitlezing')
+        raise HTTPException(422,'Directe uitlezing van Gaspedaal staat uit (zie Instellingen)')
     if body.provider=='gaspedaal' and not (settings.data_source_approved and settings.gaspedaal_api_search_template):
-        raise HTTPException(422,'Gaspedaal API is nog niet geconfigureerd via de serverinstellingen')
+        raise HTTPException(422,'De Gaspedaal-koppeling is nog niet ingesteld (zie Instellingen)')
     if not con.execute('SELECT 1 FROM search_profiles WHERE id=?',(profile_id,)).fetchone():
-        raise HTTPException(404,'Zoekprofiel niet gevonden')
+        raise HTTPException(404,'Zoekopdracht niet gevonden')
     con.execute('UPDATE search_profiles SET provider=?,updated_at=? WHERE id=?',(body.provider,now(),profile_id))
     return {'updated':profile_id,'provider':body.provider}
 
 @app.post('/api/v1/profiles/{profile_id}/snapshot')
 def import_snapshot(profile_id:str,snapshot:Snapshot,_=Depends(require_csrf),con=Depends(connection)):
     if not con.execute('SELECT 1 FROM search_profiles WHERE id=?',(profile_id,)).fetchone():
-        raise HTTPException(404,'Zoekprofiel niet gevonden')
+        raise HTTPException(404,'Zoekopdracht niet gevonden')
     if len(snapshot.listings)>5000:raise HTTPException(413,'Te veel advertenties')
     ids=[x.external_id for x in snapshot.listings]
     if len(set(ids))!=len(ids):raise HTTPException(422,'Dubbele advertentie-ID')
     con.execute('UPDATE search_profiles SET fixture_payload=?,updated_at=? WHERE id=?',
                 (snapshot.model_dump_json(),now(),profile_id))
-    return {'imported':len(ids),'complete':snapshot.complete,'message':'Snapshot opgeslagen. Druk op Nu verversen om observaties vast te leggen.'}
+    return {'imported':len(ids),'complete':snapshot.complete,'message':'Import opgeslagen. Start een controle om de prijzen vast te leggen.'}
 
 @app.get('/api/v1/criteria')
 def criteria(_=Depends(require_ui),con=Depends(connection)):
@@ -187,7 +198,7 @@ def update_criterion(key:str,body:CriterionBody,_=Depends(require_csrf),con=Depe
     if body.group_name not in ('MUST_HAVE','NICE_TO_HAVE'):
         raise HTTPException(422,'Ongeldige groep')
     if not con.execute('SELECT 1 FROM criteria WHERE key=?',(key,)).fetchone():
-        raise HTTPException(404,'Criterium niet gevonden')
+        raise HTTPException(404,'Wens niet gevonden')
     con.execute('''UPDATE criteria SET label=?,group_name=?,weight=?,description=?,synonyms_json=?,enabled=?,updated_at=?
                    WHERE key=?''',
                 (body.label,body.group_name,body.weight,body.description,dumps(body.synonyms),int(body.enabled),now(),key))
@@ -207,11 +218,11 @@ def enqueue_refresh(request:Request,body:RefreshBody,response:Response,
     scope=body.scope
     if scope!='all':
         if not isinstance(scope,dict) or not isinstance(scope.get('profile_ids'),list) or not scope['profile_ids']:
-            raise HTTPException(400,'Ongeldige scope')
-        if not all(isinstance(x,str) for x in scope['profile_ids']):raise HTTPException(400,'Ongeldige profile_ids')
+            raise HTTPException(400,'Ongeldige keuze van zoekopdrachten')
+        if not all(isinstance(x,str) for x in scope['profile_ids']):raise HTTPException(400,'Ongeldige zoekopdracht')
         requested=set(scope['profile_ids'])
         existing={x['id'] for x in con.execute('SELECT id FROM search_profiles WHERE enabled=1')}
-        if not requested <= existing:raise HTTPException(403,'Onbekend of uitgeschakeld zoekprofiel')
+        if not requested <= existing:raise HTTPException(403,'Onbekende of gepauzeerde zoekopdracht')
         scope={'profile_ids':sorted(requested)}
     if idempotency_key and len(idempotency_key)>128:
         raise HTTPException(400,'Idempotency-Key te lang')
@@ -258,7 +269,7 @@ def runs(_=Depends(require_ui),con=Depends(connection)):
 @app.get('/api/v1/refresh-runs/{run_id}')
 def run_detail(run_id:str,_=Depends(require_ui),con=Depends(connection)):
     row=con.execute('SELECT * FROM refresh_runs WHERE id=?',(run_id,)).fetchone()
-    if not row:raise HTTPException(404,'Run niet gevonden')
+    if not row:raise HTTPException(404,'Controle niet gevonden')
     data=dict(row)
     data['summary']=json.loads(data.pop('summary_json'))
     data['scope']=json.loads(data.pop('scope_json'))
@@ -331,7 +342,7 @@ def toggle_favorite(listing_id:str,_=Depends(require_csrf),con=Depends(connectio
 def manual_review(listing_id:str,body:ReviewBody,_=Depends(require_csrf),con=Depends(connection)):
     if body.status not in ('PRESENT','ABSENT','UNKNOWN','CONFLICT'):raise HTTPException(422,'Ongeldige status')
     if not con.execute('SELECT 1 FROM listings WHERE id=?',(listing_id,)).fetchone():raise HTTPException(404,'Auto onbekend')
-    if not con.execute('SELECT 1 FROM criteria WHERE key=?',(body.criterion_key,)).fetchone():raise HTTPException(404,'Optie onbekend')
+    if not con.execute('SELECT 1 FROM criteria WHERE key=?',(body.criterion_key,)).fetchone():raise HTTPException(404,'Wens onbekend')
     con.execute('''INSERT INTO claims(listing_id,criterion_key,status,evidence,reason,confidence,source,updated_at)
        VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(listing_id,criterion_key) DO UPDATE SET status=excluded.status,
        evidence=excluded.evidence,reason=excluded.reason,confidence=excluded.confidence,source=excluded.source,updated_at=excluded.updated_at''',
@@ -356,7 +367,7 @@ def integrations(_=Depends(require_ui),con=Depends(connection)):
 @app.get('/api/v1/integrations/{integration_id}')
 def integration_detail(integration_id:str,_=Depends(require_ui),con=Depends(connection)):
     row=con.execute('SELECT * FROM integration_requests WHERE id=?',(integration_id,)).fetchone()
-    if not row:raise HTTPException(404,'Integratie niet gevonden')
+    if not row:raise HTTPException(404,'Beoordeling niet gevonden')
     result=dict(row)
     for key in ('request_json','parsed_json'):
         result[key]=json.loads(result[key]) if result[key] else None
