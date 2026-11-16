@@ -459,9 +459,21 @@ def listings(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connecti
         query+=" FROM listings l ORDER BY (l.availability='ACTIVE') DESC"
     query+=',l.score_total DESC,l.price_eur ASC LIMIT 1000'
     items=[dict(r) for r in con.execute(query,params)]
+    labels=criteria_labels(con)
     for item in items:
         if 'profile_status' in item:item['availability']=item.pop('profile_status')
+        item['status_reason']=status_reason(item.pop('status_keys_json','{}'),labels)
     return {'items':items}
+
+
+def criteria_labels(con):
+    return {r['key']:r['label'] for r in con.execute('SELECT key,label FROM criteria')}
+
+
+def status_reason(raw,labels):
+    """Which must-haves make the status what it is, as labels: {absent, unknown, conflict}."""
+    keys=json.loads(raw or '{}')
+    return {k:[labels.get(x,x) for x in keys.get(k,[])] for k in ('absent','unknown','conflict')}
 
 @app.get('/api/v1/listings/{listing_id}')
 def listing_detail(listing_id:str,_=Depends(require_ui),con=Depends(connection)):
@@ -474,8 +486,13 @@ def listing_detail(listing_id:str,_=Depends(require_ui),con=Depends(connection))
     listing['detail_fetches']=[dict(r) for r in con.execute('''SELECT portal_id,source_url,status,text_length,error,created_at FROM source_detail_attempts WHERE listing_id=? ORDER BY created_at DESC LIMIT 15''',(listing_id,))]
     listing['history']=[dict(r) for r in con.execute('SELECT observed_at,price_eur,run_id FROM price_observations WHERE listing_id=? ORDER BY observed_at',(listing_id,))]
     listing['events']=[dict(r) for r in con.execute('SELECT * FROM listing_events WHERE listing_id=? ORDER BY created_at DESC',(listing_id,))]
-    listing['claims']=[dict(r) for r in con.execute('''SELECT c.*,cr.label,cr.group_name,cr.weight FROM claims c JOIN criteria cr ON cr.key=c.criterion_key
-                                           WHERE c.listing_id=? ORDER BY cr.group_name,cr.weight DESC''',(listing_id,))]
+    # Every active wish, also those without an assessment yet (shown as uncertain).
+    listing['claims']=[dict(r) for r in con.execute('''SELECT cr.key AS criterion_key,cr.label,cr.group_name,cr.weight,
+        COALESCE(c.status,'UNKNOWN') AS status,c.evidence,c.reason,COALESCE(c.confidence,0) AS confidence,
+        c.source,c.updated_at,c.listing_id IS NULL AS not_assessed
+        FROM criteria cr LEFT JOIN claims c ON c.criterion_key=cr.key AND c.listing_id=?
+        WHERE cr.enabled=1 ORDER BY cr.group_name,cr.weight DESC,cr.label''',(listing_id,))]
+    listing['status_reason']=status_reason(listing.pop('status_keys_json','{}'),criteria_labels(con))
     listing['notes']=[dict(r) for r in con.execute('SELECT * FROM negotiation_notes WHERE listing_id=? ORDER BY created_at DESC',(listing_id,))]
     # Restrict comps to same model category, similar year and kilometers. Trim preference is conditional.
     comps=[dict(r) for r in con.execute("SELECT id,price_eur,year,kilometers,trim FROM listings WHERE availability='ACTIVE' AND id!=?",(listing_id,))]
@@ -514,6 +531,18 @@ def set_description(listing_id:str,body:DescriptionBody,_=Depends(require_csrf),
     con.execute('''UPDATE listings SET description=?,description_source=?,text_hash=?,analyzed_hash=NULL,updated_at=?
                    WHERE id=?''',(text,'MANUAL' if text else None,digest,now(),listing_id))
     return {'updated':True,'description_source':'MANUAL' if text else None}
+
+@app.delete('/api/v1/listings/{listing_id}/review/{criterion_key}')
+def undo_review(listing_id:str,criterion_key:str,_=Depends(require_csrf),con=Depends(connection)):
+    """Remove your own judgement: the wish is recognised locally again now and by AI at the next check."""
+    cur=con.execute("DELETE FROM claims WHERE listing_id=? AND criterion_key=? AND source='MANUAL_OVERRIDE'",
+                    (listing_id,criterion_key))
+    if not cur.rowcount:raise HTTPException(404,'Geen eigen oordeel gevonden')
+    con.execute('UPDATE listings SET analyzed_hash=NULL WHERE id=?',(listing_id,))
+    criteria=get_criteria(con)
+    apply_local_claims(con,criteria,{criterion_key},{listing_id})
+    score=recalculate_score(con,listing_id,criteria)
+    return {'updated':True,'score':score}
 
 @app.post('/api/v1/listings/{listing_id}/notes')
 def add_note(listing_id:str,body:NoteBody,_=Depends(require_csrf),con=Depends(connection)):

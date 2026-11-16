@@ -2,8 +2,8 @@ import {api} from '../api.js';
 import {datum, esc, euro, fmt, relatief} from '../format.js';
 import {chart} from '../charts.js';
 import {RUN_STATE, TRIGGER, label} from '../labels.js';
-import {eligibilityBadge} from '../status.js';
-import {$, bar, button, card, icon, notice, pageHead, skeletons, stat, statusBadge, table} from '../ui.js';
+import {eligibilityBadge, matchCell} from '../status.js';
+import {$, button, card, icon, notice, pageHead, skeletons, stat, statusBadge, table} from '../ui.js';
 import {allProfiles, profileQuery} from '../context.js';
 
 export function skeleton() {
@@ -31,7 +31,7 @@ function carRow(x) {
       <span class="sub">${esc(x.seller || 'Verkoper onbekend')}</span>`,
     euro(x.price_eur),
     fmt(x.kilometers),
-    `${fmt(x.score_total)}%${bar([[x.score_total, 'fill']], `Match ${fmt(x.score_total)} procent`)}`,
+    matchCell(x, {detail: false}),
     eligibilityBadge(x),
   ];
 }

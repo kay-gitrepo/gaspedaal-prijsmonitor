@@ -2,9 +2,10 @@
 import {api} from '../api.js';
 import {datum, esc, euro, fmt, dt} from '../format.js';
 import {chart} from '../charts.js';
-import {AVAILABILITY, CLAIM, CLAIM_SOURCE, GROUP, label} from '../labels.js';
-import {eligibilityBadge} from '../status.js';
-import {$, $$, button, card, dialogHead, field, icon, openDialog, segment, statusBadge, table, toast} from '../ui.js';
+import {AVAILABILITY} from '../labels.js';
+import {matchCell, statusChip} from '../status.js';
+import {$, $$, button, card, dialogHead, field, icon, openDialog, statusBadge, table, toast} from '../ui.js';
+import {equipmentActions, equipmentHtml, openQuestions, questionsHtml} from '../equipment.js';
 import {photosOf} from './aanbod.js';
 
 function gallery(x) {
@@ -43,21 +44,6 @@ function negotiation(neg) {
     (n = ${fmt(neg.sample_size)}). Geen verkoopprijzen.</p>`);
 }
 
-function claimItem(id, c) {
-  const options = [['PRESENT', 'Aanwezig'], ['ABSENT', 'Afwezig'], ['UNKNOWN', 'Onbekend'], ['CONFLICT', 'Tegenstrijdig']];
-  const quote = c.evidence ? `“${esc(c.evidence)}”` : esc(c.reason || 'Niet genoemd in de advertentie');
-  return `<div class="list-item"><div><strong>${esc(c.label)}</strong>
-    <span class="muted small"> · ${esc(label(GROUP, c.group_name))}</span>
-    <p>${quote} · ${esc(label(CLAIM_SOURCE, c.source, 'Uit de advertentie'))}</p>
-    <details class="disclosure"><summary>${icon('chevron-down')}Corrigeren</summary>
-      <form class="claim-form" data-submit="review" data-id="${esc(id)}" data-key="${esc(c.criterion_key)}">
-        ${segment('status', options, c.status, {label: `Oordeel over ${c.label}`})}
-        <input class="input" name="evidence" maxlength="400" aria-label="Bron of toelichting"
-          placeholder="Bron, bijvoorbeeld: dealer bevestigd per mail">
-        ${button('Opslaan', {type: 'submit', variant: 'primary', size: 's'})}</form></details></div>
-    ${statusBadge(CLAIM, c.status)}</div>`;
-}
-
 const TEXT_SOURCE = {
   SOURCE: 'Uit de zoekresultaten', DETAIL_PAGE: 'Van de oorspronkelijke advertentie', MANUAL: 'Door jou toegevoegd',
 };
@@ -83,7 +69,7 @@ function textCard(x, id) {
       : 'Eigen tekst gebruiken'}</summary>${form}</details>`, {sub: source});
 }
 
-export async function showCar(id) {
+export async function showCar(id, {keepScroll = false} = {}) {
   const x = await api('/listings/' + encodeURIComponent(id));
   const claims = x.claims || [];
   const sources = x.sources || [];
@@ -100,9 +86,10 @@ export async function showCar(id) {
     icon: 'external', attrs: {target: '_blank', rel: 'noopener noreferrer'}}) : '';
   openDialog(dialogHead(x.title, sub) + `
     <div class="detail-top"><span class="detail-price">${euro(x.price_eur)}</span>
-      ${eligibilityBadge(x)}${statusBadge(AVAILABILITY, x.availability)}
+      ${statusChip(x)}${statusBadge(AVAILABILITY, x.availability)}
       ${button(x.favorite ? 'Van shortlist halen' : 'Op shortlist zetten', {icon: 'star', action: 'favorite',
         data: {id}, attrs: {'aria-pressed': x.favorite ? 'true' : 'false'}})}${adLink}</div>
+    <div class="detail-match">${matchCell(x)}</div>
     ${gallery(x)}
     <div class="detail-grid">
       ${card('Prijsverloop', chart(history, {title: 'Vraagprijs'}), {sub: `${fmt(x.history.length)} metingen`})}
@@ -111,24 +98,31 @@ export async function showCar(id) {
     ${card('Aanbieders', sources.length ? table(sourceCols, sourceRows)
       : '<p class="muted">De bron gaf geen afzonderlijke aanbieders mee.</p>', {id: 'aanbieders'})}
     ${textCard(x, id)}
-    ${card('Uitrusting', claims.length ? `<div class="list">${claims.map(c => claimItem(id, c)).join('')}</div>`
-      : '<p class="muted">Nog niet beoordeeld.</p>', {sub: `Match ${fmt(x.score_total)}%`})}
+    ${card('Uitrusting', equipmentHtml(id, claims), {id: 'uitrusting',
+      sub: `${fmt(x.score_total)}% bevestigd · tot ${fmt(x.score_potential)}% mogelijk · `
+        + `bewijs voor ${fmt(x.evidence_coverage)}% van het gewicht`})}
+    ${card('Vragen aan de verkoper', questionsHtml(x, claims), {id: 'vragen',
+      sub: openQuestions(claims).length ? 'Eén vraag per onzekere wens, must-haves eerst' : ''})}
     ${card('Notities', `<form data-submit="note" data-id="${esc(id)}" class="form-grid">
       ${field({label: 'Bod (€)', name: 'offer_eur', type: 'number', attrs: {min: 0}})}
       ${field({label: 'Notitie', name: 'note', attrs: {required: true, placeholder: 'Bijvoorbeeld: dealer gebeld'}})}
       ${button('Notitie opslaan', {type: 'submit', variant: 'primary'})}</form>
-      ${notes ? `<div class="list">${notes}</div>` : ''}`)}`);
+      ${notes ? `<div class="list">${notes}</div>` : ''}`)}`, 'dialog-title', {keepScroll});
 }
 
+const reload = id => showCar(id, {keepScroll: true});
+const equipment = equipmentActions(reload);
+
 export const actions = {
+  ...equipment.actions,
   async 'clear-description'(el) {
     await api('/listings/' + encodeURIComponent(el.dataset.id) + '/description', {method: 'POST', body: {text: ''}});
     toast('Eigen tekst verwijderd');
-    await showCar(el.dataset.id);
+    await reload(el.dataset.id);
   },
   async favorite(el) {
     await api('/listings/' + encodeURIComponent(el.dataset.id) + '/favorite', {method: 'POST'});
-    await showCar(el.dataset.id);
+    await reload(el.dataset.id);
   },
   photo(el) {
     const main = $('#gallery-main');
@@ -137,25 +131,21 @@ export const actions = {
   },
 };
 
+export const changes = {...equipment.changes};
+
 export const submits = {
+  ...equipment.submits,
   async description(form) {
     const text = new FormData(form).get('text') || '';
     await api('/listings/' + encodeURIComponent(form.dataset.id) + '/description', {method: 'POST', body: {text}});
     toast('Tekst opgeslagen. De uitrusting wordt bij de volgende controle opnieuw beoordeeld.');
-    await showCar(form.dataset.id);
-  },
-  async review(form) {
-    const d = Object.fromEntries(new FormData(form));
-    const body = {criterion_key: form.dataset.key, status: d.status, evidence: d.evidence || null};
-    await api('/listings/' + encodeURIComponent(form.dataset.id) + '/review', {method: 'POST', body});
-    toast('Oordeel opgeslagen');
-    await showCar(form.dataset.id);
+    await reload(form.dataset.id);
   },
   async note(form) {
     const d = Object.fromEntries(new FormData(form));
     const body = {offer_eur: d.offer_eur ? Number(d.offer_eur) : null, note: d.note};
     await api('/listings/' + encodeURIComponent(form.dataset.id) + '/notes', {method: 'POST', body});
     toast('Notitie opgeslagen');
-    await showCar(form.dataset.id);
+    await reload(form.dataset.id);
   },
 };

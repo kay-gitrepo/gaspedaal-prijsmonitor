@@ -1,8 +1,8 @@
 import {api} from '../api.js';
 import {esc, euro, fmt} from '../format.js';
 import {AVAILABILITY} from '../labels.js';
-import {eligibilityBadge} from '../status.js';
-import {$, bar, button, card, emptyState, icon, pageHead, skeletons, statusBadge, table} from '../ui.js';
+import {eligibilityBadge, matchCell} from '../status.js';
+import {$, button, card, emptyState, icon, pageHead, skeletons, statusBadge, table} from '../ui.js';
 import {profileQuery} from '../context.js';
 
 let items = [];
@@ -38,8 +38,7 @@ function row(x) {
   const status = [eligibilityBadge(x)];
   if (x.availability !== 'ACTIVE') status.push(statusBadge(AVAILABILITY, x.availability));
   const star = x.favorite ? `<span class="badge badge-info">${icon('star')}Shortlist</span>` : '';
-  const match = `${fmt(x.score_total)}%${bar([[x.score_must * .7, 'fill'], [x.score_nice * .3, 'fill-2']],
-    `Match ${fmt(x.score_total)} procent`)}`;
+  const match = matchCell(x);
   return [
     thumb(x),
     `<a class="title-link" href="#/auto/${encodeURIComponent(x.id)}">${esc(x.title)}</a>

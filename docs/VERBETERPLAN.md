@@ -121,7 +121,7 @@ Werk van boven naar beneden. Werk deze tabel bij na elk WP (`☐` → `☑`, met
 | 04 | Zoekopdrachten beheren, kiezen en budget | F12 F13 F14 U6 | Sonnet | ☑ 16-11-2026 · 0.8.0 |
 | 05 | Advertentietekst beschikbaar krijgen | F1 | Sonnet (eerst nagaan: Opus) | ☑ 16-11-2026 · 0.9.0 |
 | 06 | Mijn wensen: toevoegen, synoniemen, direct herrekenen | F2 F3 B3 | Sonnet | ☑ 16-11-2026 · 0.10.0 |
-| 07 | Matchscore met onzekerheid, vragen aan de verkoper, corrigeren | F4 F5 F6 | Sonnet | ☐ |
+| 07 | Matchscore met onzekerheid, vragen aan de verkoper, corrigeren | F4 F5 F6 | Sonnet | ☑ 16-11-2026 · 0.11.0 |
 | 08 | Aanbodlijst en autopagina | F7 F8 B5 U2 U4 U7 | Sonnet | ☐ |
 | 09 | Controles: voortgang, actualiteit, wat is er veranderd | F15 | Sonnet | ☐ |
 | 10 | Marktwaarde en onderhandelingspositie | F9 F10 | **Opus** | ☐ |

@@ -193,13 +193,14 @@ export function toast(message, variant = 'success') {
 }
 
 /* ---------- Dialoog (<dialog>: focus blijft binnen, Escape sluit, achtergrond scrolt niet) ---------- */
-export function openDialog(html, labelledBy = 'dialog-title') {
+export function openDialog(html, labelledBy = 'dialog-title', {keepScroll = false} = {}) {
   const d = $('#dialog');
+  const scroll = d.scrollTop;
   d.innerHTML = `<div class="dialog-body">${html}</div>`;
   d.setAttribute('aria-labelledby', labelledBy);
   if (!d.open) d.showModal();
   document.body.classList.add('no-scroll');
-  d.scrollTop = 0;
+  d.scrollTop = keepScroll ? scroll : 0;
 }
 
 export function closeDialogView() {

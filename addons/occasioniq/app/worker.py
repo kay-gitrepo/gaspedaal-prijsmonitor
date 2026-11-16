@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from hashlib import sha256
 from app.config import settings
-from app.db import AVAILABILITY_CASE, connect, dumps, log_event, now, uid
+from app.db import AVAILABILITY_CASE, SCORE_COLUMNS, connect, dumps, log_event, now, score_values, uid
 from app.extraction import cleaned_text, local_claims, sha256 as text_hash
 from app.gemini import classify, build_payload, PROMPT_VERSION
 from app.provider import provider_for
@@ -35,7 +35,7 @@ def recalculate_all(con, criteria):
         recalculate_score(con, listing_id, criteria)
 
 
-def apply_local_claims(con, criteria, keys):
+def apply_local_claims(con, criteria, keys, listing_ids=None):
     """Immediately apply local recognition for the given wishes to every car (no AI, manual evidence untouched).
 
     A PRESENT/ABSENT local result replaces an automatic claim; otherwise an existing claim is kept and a missing
@@ -44,7 +44,10 @@ def apply_local_claims(con, criteria, keys):
     selected = [c for c in criteria if c['key'] in keys]
     if not selected:
         return
-    for row in con.execute('SELECT id,title,description FROM listings').fetchall():
+    rows = con.execute('SELECT id,title,description FROM listings').fetchall()
+    if listing_ids is not None:
+        rows = [r for r in rows if r['id'] in listing_ids]
+    for row in rows:
         local = local_claims(cleaned_text(row['title'], row['description'], criteria), selected)
         for c in selected:
             claim = local.get(c['key'])
@@ -66,8 +69,8 @@ def apply_local_claims(con, criteria, keys):
 def recalculate_score(con, listing_id, criteria):
     claims = {r['criterion_key']: r['status'] for r in con.execute('SELECT criterion_key,status FROM claims WHERE listing_id=?',(listing_id,))}
     score = calculate(criteria, claims)
-    con.execute('UPDATE listings SET score_total=?,score_must=?,score_nice=?,eligibility=? WHERE id=?',
-                (score['score_total'],score['score_must'],score['score_nice'],score['eligibility'],listing_id))
+    con.execute(f'UPDATE listings SET {",".join(c+"=?" for c in SCORE_COLUMNS)} WHERE id=?',
+                (*score_values(score),listing_id))
     return score
 
 

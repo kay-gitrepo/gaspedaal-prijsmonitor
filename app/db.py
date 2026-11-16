@@ -289,6 +289,37 @@ def _m6_criteria_terms(con):
         parsed_json TEXT, tokens_in INTEGER, tokens_out INTEGER, duration_ms INTEGER, error TEXT, created_at TEXT NOT NULL)''')
 
 
+SCORE_COLUMNS = ('score_total', 'score_must', 'score_nice', 'eligibility', 'score_potential', 'evidence_coverage',
+                 'must_present', 'must_count', 'must_unknown', 'must_absent', 'status_keys_json')
+
+
+def score_values(score):
+    """Column values for SCORE_COLUMNS from a scoring.calculate() result."""
+    return (score['score_total'], score['score_must'], score['score_nice'], score['eligibility'],
+            score['score_potential'], score['evidence_coverage'], score['must_present'], score['must_count'],
+            score['must_unknown'], score['must_absent'], dumps(score['status_keys']))
+
+
+def _m7_score_uncertainty(con):
+    """Confirmed vs. possible score, evidence coverage and must-have counts per car (WP-07)."""
+    from app.scoring import calculate
+    for name, definition in [('score_potential', 'REAL NOT NULL DEFAULT 0'), ('evidence_coverage', 'REAL NOT NULL DEFAULT 0'),
+                             ('must_present', 'INTEGER NOT NULL DEFAULT 0'), ('must_count', 'INTEGER NOT NULL DEFAULT 0'),
+                             ('must_unknown', 'INTEGER NOT NULL DEFAULT 0'), ('must_absent', 'INTEGER NOT NULL DEFAULT 0'),
+                             ('status_keys_json', "TEXT NOT NULL DEFAULT '{}'")]:
+        add_column(con, 'listings', name, definition)
+    criteria = [dict(r) for r in con.execute('SELECT key,group_name,weight,enabled FROM criteria WHERE enabled=1')]
+    for (listing_id,) in con.execute('SELECT id FROM listings').fetchall():
+        claims = {r[0]: r[1] for r in con.execute('SELECT criterion_key,status FROM claims WHERE listing_id=?',
+                                                   (listing_id,))}
+        score = calculate(criteria, claims)
+        con.execute(f'UPDATE listings SET {",".join(c + "=?" for c in SCORE_COLUMNS)} WHERE id=?',
+                    (*score_values(score), listing_id))
+
+
+_m7_score_uncertainty.changes_data = True
+
+
 # (versie, functie). Functies met attribuut `changes_data = True` wijzigen bestaande rijen;
 # vóór de eerste daarvan wordt een back-up van het databasebestand gemaakt.
 MIGRATIONS = [
@@ -298,6 +329,7 @@ MIGRATIONS = [
     (4, _m4_profile_management),
     (5, _m5_description_source),
     (6, _m6_criteria_terms),
+    (7, _m7_score_uncertainty),
 ]
 
 
