@@ -81,8 +81,17 @@ source .venv/bin/activate
 pip install -r requirements-dev.txt
 python -m pytest -q
 python -m compileall -q app
-node --check app/static/app.js
+for f in app/static/js/*.js app/static/js/pages/*.js; do node --check "$f"; done
 ```
+
+Lokaal draaien met demo-data (wachtwoord `dev`, database `data/dev.sqlite3`):
+
+```bash
+python scripts/seed_demo.py --reset
+python scripts/dev_server.py
+```
+
+Open daarna `http://127.0.0.1:8099`. Elk scherm heeft een eigen adres, bijvoorbeeld `#/aanbod` of `#/auto/<id>`.
 
 ## Beveiliging en bewaren
 

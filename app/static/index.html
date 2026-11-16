@@ -22,14 +22,14 @@
       <div class="logo"><div class="logo-icon">◆</div><div><strong>Occasion<span>IQ</span></strong><small>PRIJS & AANKOOPANALYSE</small></div></div>
       <div class="nav-heading">WERKRUIMTE</div>
       <nav id="nav">
-        <button data-page="dashboard" class="nav-link active"><span>◫</span> Overzicht</button>
-        <button data-page="aanbod" class="nav-link"><span>▤</span> Autoaanbod</button>
-        <button data-page="profielen" class="nav-link"><span>⌕</span> Zoekprofielen</button>
-        <button data-page="wensen" class="nav-link"><span>✦</span> Mijn opties</button>
+        <a href="#/overzicht" data-nav="overzicht" class="nav-link"><span>◫</span> Overzicht</a>
+        <a href="#/aanbod" data-nav="aanbod" class="nav-link"><span>▤</span> Autoaanbod</a>
+        <a href="#/zoekopdrachten" data-nav="zoekopdrachten" class="nav-link"><span>⌕</span> Zoekprofielen</a>
+        <a href="#/wensen" data-nav="wensen" class="nav-link"><span>✦</span> Mijn opties</a>
         <div class="nav-heading nested">INTEGRATIES</div>
-        <button data-page="runs" class="nav-link"><span>↻</span> Uitvoeringslog</button>
-        <button data-page="gemini" class="nav-link"><span>✳</span> Gemini-log</button>
-        <button data-page="instellingen" class="nav-link"><span>⚙</span> Home Assistant</button>
+        <a href="#/controles" data-nav="controles" class="nav-link"><span>↻</span> Uitvoeringslog</a>
+        <a href="#/ai-analyse" data-nav="ai-analyse" class="nav-link"><span>✳</span> Gemini-log</a>
+        <a href="#/instellingen" data-nav="instellingen" class="nav-link"><span>⚙</span> Home Assistant</a>
       </nav>
       <div class="sidebar-bottom"><span class="online-dot"></span><span>Lokaal gehost</span><button id="logout" title="Uitloggen">Uitloggen</button></div>
     </aside>
@@ -41,6 +41,6 @@
   </div>
   <div id="modal-backdrop" class="modal-backdrop hidden"><div id="modal" class="modal" role="dialog" aria-modal="true"></div></div>
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js" defer></script>
+  <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>

@@ -97,6 +97,11 @@ def analyze_listing(con, listing_id, run_id, criteria):
     return decision
 
 
+def external_key(profile, metadata, ad_id):
+    """Database key of a vehicle for this profile's source."""
+    return f'{profile["provider"]}:{ad_id}'
+
+
 def scan_profile(con,run_id,profile,criteria):
     snapshot = provider_for(profile).fetch(dict(profile))
     count=len(snapshot.listings)
@@ -121,7 +126,7 @@ def scan_profile(con,run_id,profile,criteria):
             if not remaining:break
             if ad.description.strip() or not ad.portals:continue
             old=con.execute('SELECT description FROM listings WHERE external_id=?',
-                           (f'{profile["provider"]}:{ad.external_id}',)).fetchone()
+                           (external_key(profile,snapshot.metadata,ad.external_id),)).fetchone()
             if old and old['description'].strip():continue
             try:detail=fetch_advertiser_text(ad.portals)
             except Exception as exc:
@@ -140,7 +145,7 @@ def scan_profile(con,run_id,profile,criteria):
     con.execute('BEGIN IMMEDIATE')
     try:
         for ad in snapshot.listings:
-            ext_id=f'{profile["provider"]}:{ad.external_id}'
+            ext_id=external_key(profile,snapshot.metadata,ad.external_id)
             previous=con.execute('SELECT * FROM listings WHERE external_id=?',(ext_id,)).fetchone()
             listing_id=previous['id'] if previous else uid('car')
             clean=cleaned_text(ad.title,ad.description,criteria)

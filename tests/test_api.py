@@ -88,7 +88,7 @@ def test_frontend_assets_and_authentication():
     with TestClient(app) as client:
         assert client.get('/').status_code==200
         assert 'OccasionIQ' in client.get('/').text
-        assert client.get('/static/app.js').status_code==200
+        assert client.get('/static/js/main.js').status_code==200
         assert client.get('/health').json()['live_gaspedaal_configured'] is False
         assert client.post('/api/v1/refresh-runs',json={'scope':'all'}).status_code==401
         wrong=client.post('/api/v1/login',json={'password':'incorrect'})

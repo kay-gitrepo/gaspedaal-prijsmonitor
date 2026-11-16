@@ -115,7 +115,7 @@ Werk van boven naar beneden. Werk deze tabel bij na elk WP (`☐` → `☑`, met
 
 | WP | Titel | Lost op | Model | Status |
 |---|---|---|---|---|
-| 01 | Fundament: dev-omgeving, migraties, frontend in modules, adressen per scherm | U1 | Sonnet | ☐ |
+| 01 | Fundament: dev-omgeving, migraties, frontend in modules, adressen per scherm | U1 | Sonnet | ☑ 16-11-2026 · 0.5.0 |
 | 02 | Betrouwbare voertuigidentiteit en scanrobuustheid | B1 B2 B4 F8 | **Opus** | ☐ |
 | 03 | Ontwerpsysteem, navigatie en taal | U3 U5 U6 U8 U9 | Sonnet | ☐ |
 | 04 | Zoekopdrachten beheren, kiezen en budget | F12 F13 F14 U6 | Sonnet | ☐ |

@@ -20,7 +20,9 @@ def dumps(v):
 
 def connect():
     settings.database_path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(settings.database_path), timeout=30, isolation_level=None)
+    # FastAPI may open a request's connection in one worker thread and use it in another (never concurrently),
+    # so the same-thread check is disabled; each request and the worker still get their own connection.
+    con = sqlite3.connect(str(settings.database_path), timeout=30, isolation_level=None, check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute('PRAGMA foreign_keys=ON')
     con.execute('PRAGMA journal_mode=WAL')
@@ -130,13 +132,80 @@ DEFAULT_CRITERIA = [
 ]
 
 
+def columns(con, table):
+    return {r[1] for r in con.execute(f'PRAGMA table_info({table})')}
+
+
+def add_column(con, table, name, definition):
+    """Idempotent ALTER TABLE: databases from before the migration mechanism may already have the column."""
+    if name not in columns(con, table):
+        con.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
+
+
+def _m1_photos(con):
+    add_column(con, 'listings', 'photos_json', "TEXT NOT NULL DEFAULT '[]'")
+
+
+# (versie, functie). Functies met attribuut `changes_data = True` wijzigen bestaande rijen;
+# vóór de eerste daarvan wordt een back-up van het databasebestand gemaakt.
+MIGRATIONS = [
+    (1, _m1_photos),
+]
+
+
+def schema_version(con):
+    con.execute('CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)')
+    return con.execute('SELECT COALESCE(MAX(version),0) FROM schema_migrations').fetchone()[0]
+
+
+def backup_database(con, version):
+    """Consistent copy via the SQLite backup API (safe with WAL), to `<pad>.bak-v<schemaversie>`."""
+    target = settings.database_path.with_name(f'{settings.database_path.name}.bak-v{version}')
+    dest = sqlite3.connect(str(target))
+    try:
+        con.backup(dest)
+    finally:
+        dest.close()
+    return target
+
+
+def migrate(con, migrations=None, backup=True):
+    """Run missing migrations in order, each in its own transaction. Returns applied versions."""
+    migrations = MIGRATIONS if migrations is None else migrations
+    current = schema_version(con)
+    done = {r[0] for r in con.execute('SELECT version FROM schema_migrations')}
+    pending = [(v, fn) for v, fn in sorted(migrations, key=lambda m: m[0]) if v not in done]
+    has_data = con.execute('SELECT EXISTS(SELECT 1 FROM listings) OR EXISTS(SELECT 1 FROM refresh_runs)').fetchone()[0]
+    backed_up = False
+    applied = []
+    for version, fn in pending:
+        if backup and has_data and not backed_up and getattr(fn, 'changes_data', False):
+            backup_database(con, current)
+            backed_up = True
+        foreign_keys_off = getattr(fn, 'foreign_keys_off', False)
+        if foreign_keys_off:
+            con.execute('PRAGMA foreign_keys=OFF')
+        con.execute('BEGIN IMMEDIATE')
+        try:
+            fn(con)
+            con.execute('INSERT INTO schema_migrations(version,applied_at) VALUES(?,?)', (version, now()))
+            con.execute('COMMIT')
+        except Exception:
+            con.execute('ROLLBACK')
+            raise
+        finally:
+            if foreign_keys_off:
+                con.execute('PRAGMA foreign_keys=ON')
+        applied.append(version)
+        current = version
+    return applied
+
+
 def init_db():
     con = connect()
     try:
         con.executescript(SCHEMA)
-        cols={r[1] for r in con.execute('PRAGMA table_info(listings)')}
-        if 'photos_json' not in cols:
-            con.execute("ALTER TABLE listings ADD COLUMN photos_json TEXT NOT NULL DEFAULT '[]'")
+        migrate(con)
         if not con.execute('SELECT 1 FROM criteria LIMIT 1').fetchone():
             for key, label, group, weight, description, synonyms in DEFAULT_CRITERIA:
                 con.execute('INSERT INTO criteria VALUES (?,?,?,?,?,?,?,?)',

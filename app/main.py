@@ -3,6 +3,7 @@ import csv
 import hashlib
 import io
 import json
+import mimetypes
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,6 +17,7 @@ from pydantic import BaseModel, Field
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.config import settings
+from app.version import VERSION
 from app.db import connect, dumps, init_db, now, rowdict, uid
 from app.provider import Snapshot, validate_search_url
 from app.scoring import negotiation_snapshot
@@ -32,7 +34,9 @@ async def lifespan(app: FastAPI):
     yield
     stop_worker()
 
-app = FastAPI(title='Gaspedaal Prijsmonitor',version='0.3.0',lifespan=lifespan,docs_url=None,redoc_url=None)
+app = FastAPI(title='OccasionIQ',version=VERSION,lifespan=lifespan,docs_url=None,redoc_url=None)
+# Op Windows levert Python soms text/plain voor .js; browsers weigeren dan ES-modules.
+mimetypes.add_type('application/javascript', '.js')
 app.mount('/static', StaticFiles(directory=ROOT/'static'), name='static')
 
 @app.middleware('http')
@@ -114,7 +118,7 @@ def connection():
 def index():return FileResponse(ROOT/'static'/'index.html')
 
 @app.get('/health')
-def health():return {'status':'ok','version':'0.3.0','live_gaspedaal_configured':bool(settings.data_source_approved)}
+def health():return {'status':'ok','version':VERSION,'live_gaspedaal_configured':bool(settings.data_source_approved)}
 
 @app.get('/api/v1/session')
 def session(request:Request):
