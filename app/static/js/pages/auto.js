@@ -2,7 +2,8 @@
 import {api} from '../api.js';
 import {datum, esc, euro, fmt, dt} from '../format.js';
 import {chart} from '../charts.js';
-import {AVAILABILITY, CLAIM, CLAIM_SOURCE, ELIGIBILITY, GROUP, label} from '../labels.js';
+import {AVAILABILITY, CLAIM, CLAIM_SOURCE, GROUP, label} from '../labels.js';
+import {eligibilityBadge} from '../status.js';
 import {$, $$, button, card, dialogHead, field, icon, openDialog, segment, statusBadge, table, toast} from '../ui.js';
 import {photosOf} from './aanbod.js';
 
@@ -57,6 +58,31 @@ function claimItem(id, c) {
     ${statusBadge(CLAIM, c.status)}</div>`;
 }
 
+const TEXT_SOURCE = {
+  SOURCE: 'Uit de zoekresultaten', DETAIL_PAGE: 'Van de oorspronkelijke advertentie', MANUAL: 'Door jou toegevoegd',
+};
+
+function textCard(x, id) {
+  const text = (x.description || '').trim();
+  const form = `<form data-submit="description" data-id="${esc(id)}" class="stack">
+    ${field({label: 'Advertentietekst', name: 'text', type: 'textarea', value: x.description_source === 'MANUAL' ? text : '',
+      hint: 'Plak de omschrijving of uitrustingslijst uit de advertentie. Wordt bij controles nooit overschreven.',
+      attrs: {maxlength: 50000, placeholder: 'Bijvoorbeeld: Trekhaak elektrisch uitklapbaar, 22 inch velgen, …'}})}
+    <div class="row">${button('Tekst opslaan', {type: 'submit', variant: 'primary'})}
+      ${x.description_source === 'MANUAL' ? button('Tekst verwijderen', {variant: 'danger', action: 'clear-description',
+        data: {id}}) : ''}</div></form>`;
+  if (!text) {
+    return card('Advertentietekst', `<p class="muted">Er is geen advertentietekst, dus de uitrusting kan niet worden
+      beoordeeld. Plak de tekst uit de advertentie om dat wel te kunnen.</p>
+      <details class="disclosure"><summary>${icon('plus')}Advertentietekst toevoegen</summary>${form}</details>`);
+  }
+  const source = TEXT_SOURCE[x.description_source] || 'Uit de bron';
+  return card('Advertentietekst', `<details class="disclosure"><summary>${icon('chevron-down')}Tekst tonen
+    (${fmt(text.length)} tekens)</summary><p class="pre-text">${esc(text)}</p></details>
+    <details class="disclosure"><summary>${icon('pencil')}${x.description_source === 'MANUAL' ? 'Tekst aanpassen'
+      : 'Eigen tekst gebruiken'}</summary>${form}</details>`, {sub: source});
+}
+
 export async function showCar(id) {
   const x = await api('/listings/' + encodeURIComponent(id));
   const claims = x.claims || [];
@@ -74,8 +100,8 @@ export async function showCar(id) {
     icon: 'external', attrs: {target: '_blank', rel: 'noopener noreferrer'}}) : '';
   openDialog(dialogHead(x.title, sub) + `
     <div class="detail-top"><span class="detail-price">${euro(x.price_eur)}</span>
-      ${statusBadge(ELIGIBILITY, x.eligibility)}${statusBadge(AVAILABILITY, x.availability)}
-      ${button(x.favorite ? 'Van shortlist halen' : 'Op shortlist', {icon: 'star', action: 'favorite',
+      ${eligibilityBadge(x)}${statusBadge(AVAILABILITY, x.availability)}
+      ${button(x.favorite ? 'Van shortlist halen' : 'Op shortlist zetten', {icon: 'star', action: 'favorite',
         data: {id}, attrs: {'aria-pressed': x.favorite ? 'true' : 'false'}})}${adLink}</div>
     ${gallery(x)}
     <div class="detail-grid">
@@ -84,6 +110,7 @@ export async function showCar(id) {
     </div>
     ${card('Aanbieders', sources.length ? table(sourceCols, sourceRows)
       : '<p class="muted">De bron gaf geen afzonderlijke aanbieders mee.</p>', {id: 'aanbieders'})}
+    ${textCard(x, id)}
     ${card('Uitrusting', claims.length ? `<div class="list">${claims.map(c => claimItem(id, c)).join('')}</div>`
       : '<p class="muted">Nog niet beoordeeld.</p>', {sub: `Match ${fmt(x.score_total)}%`})}
     ${card('Notities', `<form data-submit="note" data-id="${esc(id)}" class="form-grid">
@@ -94,6 +121,11 @@ export async function showCar(id) {
 }
 
 export const actions = {
+  async 'clear-description'(el) {
+    await api('/listings/' + encodeURIComponent(el.dataset.id) + '/description', {method: 'POST', body: {text: ''}});
+    toast('Eigen tekst verwijderd');
+    await showCar(el.dataset.id);
+  },
   async favorite(el) {
     await api('/listings/' + encodeURIComponent(el.dataset.id) + '/favorite', {method: 'POST'});
     await showCar(el.dataset.id);
@@ -106,6 +138,12 @@ export const actions = {
 };
 
 export const submits = {
+  async description(form) {
+    const text = new FormData(form).get('text') || '';
+    await api('/listings/' + encodeURIComponent(form.dataset.id) + '/description', {method: 'POST', body: {text}});
+    toast('Tekst opgeslagen. De uitrusting wordt bij de volgende controle opnieuw beoordeeld.');
+    await showCar(form.dataset.id);
+  },
   async review(form) {
     const d = Object.fromEntries(new FormData(form));
     const body = {criterion_key: form.dataset.key, status: d.status, evidence: d.evidence || null};

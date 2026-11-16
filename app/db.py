@@ -266,6 +266,18 @@ def _m4_profile_management(con):
     add_column(con, 'search_profiles', 'scope_changed_at', 'TEXT')
 
 
+def _m5_description_source(con):
+    """Where the ad text came from: SOURCE (search result), DETAIL_PAGE (advertiser page) or MANUAL (pasted)."""
+    add_column(con, 'listings', 'description_source', 'TEXT')
+    con.execute("""UPDATE listings SET description_source=CASE
+        WHEN EXISTS (SELECT 1 FROM source_detail_attempts a WHERE a.listing_id=listings.id AND a.status='SUCCESS')
+          THEN 'DETAIL_PAGE' ELSE 'SOURCE' END
+        WHERE description_source IS NULL AND TRIM(description)!=''""")
+
+
+_m5_description_source.changes_data = True
+
+
 # (versie, functie). Functies met attribuut `changes_data = True` wijzigen bestaande rijen;
 # vóór de eerste daarvan wordt een back-up van het databasebestand gemaakt.
 MIGRATIONS = [
@@ -273,6 +285,7 @@ MIGRATIONS = [
     (2, _m2_license_plate),
     (3, _m3_vehicle_identity),
     (4, _m4_profile_management),
+    (5, _m5_description_source),
 ]
 
 

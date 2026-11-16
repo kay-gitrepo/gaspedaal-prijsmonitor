@@ -1,8 +1,9 @@
 import {api} from '../api.js';
 import {datum, esc, euro, fmt, relatief} from '../format.js';
 import {chart} from '../charts.js';
-import {ELIGIBILITY, RUN_STATE, TRIGGER, label} from '../labels.js';
-import {$, bar, button, card, icon, pageHead, skeletons, stat, statusBadge, table} from '../ui.js';
+import {RUN_STATE, TRIGGER, label} from '../labels.js';
+import {eligibilityBadge} from '../status.js';
+import {$, bar, button, card, icon, notice, pageHead, skeletons, stat, statusBadge, table} from '../ui.js';
 import {allProfiles, profileQuery} from '../context.js';
 
 export function skeleton() {
@@ -31,7 +32,7 @@ function carRow(x) {
     euro(x.price_eur),
     fmt(x.kilometers),
     `${fmt(x.score_total)}%${bar([[x.score_total, 'fill']], `Match ${fmt(x.score_total)} procent`)}`,
-    statusBadge(ELIGIBILITY, x.eligibility),
+    eligibilityBadge(x),
   ];
 }
 
@@ -39,6 +40,13 @@ function step(done, title, text, actionHtml) {
   return `<li class="${done ? 'done' : ''}"><span class="step-dot">${done ? icon('check') : ''}</span>
     <div class="step-text"><strong>${esc(title)}</strong><p>${esc(text)}</p></div>
     ${done ? '<span class="badge badge-success">Klaar</span>' : actionHtml}</li>`;
+}
+
+function textCoverage(d) {
+  if (!d.active_listings || d.with_text === d.active_listings) return '';
+  return notice(`Advertentietekst beschikbaar voor <strong>${fmt(d.with_text)} van ${fmt(d.active_listings)}</strong>
+    auto's. Zonder tekst kan de uitrusting niet worden beoordeeld.
+    <a href="#/instellingen?deel=over-de-bron">Zo krijg je meer tekst</a>`, 'info');
 }
 
 /** Startlijst voor een nieuwe installatie: vier stappen met hun status. */
@@ -77,8 +85,10 @@ export async function render() {
       ${stat('Te koop', fmt(d.active_listings), 'auto\'s in deze zoekopdracht', 'car')}
       ${stat('Mediane vraagprijs', euro(d.median_asking), 'vraagprijs, geen verkoopprijs', 'euro')}
       ${stat('Voldoet', fmt(d.matches), 'alle must-haves bevestigd', 'check-circle')}
-      ${stat('Gemiddelde match', fmt(d.average_score) + '%', '70% must-haves · 30% nice-to-haves', 'wensen')}
+      ${stat('Gemiddelde match', d.average_score == null ? '—' : fmt(d.average_score) + '%',
+        `over ${fmt(d.with_text)} auto's met advertentietekst`, 'wensen')}
     </div>
+    ${textCoverage(d)}
     <div class="grid grid-2">
       ${card('Gemiddelde vraagprijs per dag', chart(trend, {title: 'Gemiddelde vraagprijs'}),
         {sub: 'Niet gecorrigeerd voor wisselend aanbod'})}

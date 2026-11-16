@@ -163,7 +163,17 @@ def scan_profile(con,run_id,profile,criteria):
             listing_id=previous['id'] if previous else uid('car')
             clean=cleaned_text(ad.title,ad.description,criteria)
             content_hash=text_hash(clean)
+            detail=details.get(ad.external_id)
+            fetched_source='DETAIL_PAGE' if detail and detail.status=='SUCCESS' else 'SOURCE'
             if previous:
+                # Text the user pasted is never overwritten by a later check.
+                if previous['description_source']=='MANUAL':
+                    desc,desc_hash,desc_source=previous['description'],previous['text_hash'],'MANUAL'
+                elif ad.description:
+                    desc,desc_hash,desc_source=ad.description,content_hash,fetched_source
+                else:
+                    desc,desc_source=previous['description'],previous['description_source']
+                    desc_hash=previous['text_hash'] if previous['description'] else content_hash
                 membership=con.execute('SELECT status FROM profile_listings WHERE profile_id=? AND listing_id=?',
                                        (profile['id'],listing_id)).fetchone()
                 if membership and membership['status']!='ACTIVE':
@@ -178,18 +188,20 @@ def scan_profile(con,run_id,profile,criteria):
                 candidate_ids.add(listing_id)
                 con.execute('''UPDATE listings SET title=?,url=?,year=?,kilometers=?,trim=?,seller=?,price_eur=?,
                    license_plate=COALESCE(?,license_plate),
-                   description=?,text_hash=?,last_seen=?,updated_at=?,availability='ACTIVE',photos_json=? WHERE id=?''',
+                   description=?,text_hash=?,description_source=?,last_seen=?,updated_at=?,availability='ACTIVE',
+                   photos_json=? WHERE id=?''',
                    (ad.title,ad.url,ad.year,ad.kilometers,ad.trim,ad.seller,ad.price_eur,ad.license_plate,
-                    ad.description or previous['description'],content_hash if ad.description or not previous['description'] else previous['text_hash'],now(),now(),
+                    desc,desc_hash,desc_source,now(),now(),
                     dumps(ad.photos or json.loads(previous['photos_json'] or '[]')),listing_id))
             else:
                 stats['new']+=1
                 candidate_ids.add(listing_id)
                 con.execute('''INSERT INTO listings(id,external_id,title,url,year,kilometers,trim,seller,price_eur,
-                  description,text_hash,first_seen,last_seen,updated_at,photos_json,license_plate)
-                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  description,text_hash,first_seen,last_seen,updated_at,photos_json,license_plate,description_source)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                   (listing_id,ext_id,ad.title,ad.url,ad.year,ad.kilometers,ad.trim,ad.seller,ad.price_eur,
-                   ad.description,content_hash,now(),now(),now(),dumps(ad.photos),ad.license_plate))
+                   ad.description,content_hash,now(),now(),now(),dumps(ad.photos),ad.license_plate,
+                   fetched_source if ad.description else None))
                 con.execute('INSERT INTO listing_events(run_id,listing_id,event_type,new_price,created_at) VALUES(?,?,?,?,?)',
                             (run_id,listing_id,'FIRST_SEEN',ad.price_eur,now()))
             # One car, multiple advertisers; retain per-portal price measurements.
@@ -215,7 +227,6 @@ def scan_profile(con,run_id,profile,criteria):
                         VALUES(?,?,?,?,?,?)''',
                         (run_id,listing_id,offer.portal_id,offer.site,offer.price_eur,now()))
                 stats['portals']+=1
-            detail=details.get(ad.external_id)
             if detail:
                 con.execute('''INSERT INTO source_detail_attempts
                     (id,run_id,listing_id,portal_id,source_url,status,text_length,error,created_at)

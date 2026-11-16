@@ -537,3 +537,5 @@ a.list-item:hover { text-decoration: none; background: var(--surface-2); }
   .profile-card .row-between { align-items: flex-start; }
 }
 .stack > .card + .card { margin-top: 0; }
+.pre-text { white-space: pre-wrap; color: var(--text-2); max-height: 320px; overflow: auto; margin: 0 0 var(--s3); }
+.card[id] { scroll-margin-top: 80px; }

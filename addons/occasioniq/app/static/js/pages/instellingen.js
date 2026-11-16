@@ -16,7 +16,7 @@ function onOff(on, yes = 'Aan', no = 'Uit') {
   return on ? badge(yes, 'success') : badge(no, 'neutral');
 }
 
-export async function render() {
+export async function render(params = new URLSearchParams()) {
   const s = await api('/system');
   const hosts = s.detail_hosts.length ? s.detail_hosts.map(h => `<code>${esc(h)}</code>`).join(' ') : 'geen';
   const source = `<dl class="facts">
@@ -42,9 +42,16 @@ export async function render() {
       <li>Kijk bij <strong>Controles</strong> of elke controle volledig is geslaagd.</li></ol>`)}
     </div>
     ${card('Gegevensbronnen', source, {sub: 'Wordt ingesteld via omgevingsvariabelen of de add-on-opties'})}
-    ${card('Over de bron', `<p class="muted">De zoeklink van Gaspedaal wordt gelezen op gestructureerde advertentiegegevens.
-      Per auto worden alle aanbieders met hun prijs vastgelegd. De oorspronkelijke advertentietekst wordt alleen opgehaald
-      bij domeinen die je zelf toestaat (<code>ADVERTISER_DETAIL_HOSTS</code>), met een maximum per controle
-      (<code>MAX_DETAIL_FETCHES_PER_RUN</code>). Een controle die niet volledig is, markeert nooit auto's als
-      verdwenen.</p>`, {id: 'over-de-bron'})}`;
+    ${card('Advertentietekst en de bron', `<div class="stack"><p>De zoekresultaten van Gaspedaal bevatten geen
+      advertentietekst en geen uitrustingslijst. Zonder tekst kan de app niet zien of een auto bijvoorbeeld een trekhaak
+      heeft; zo'n auto krijgt de status <strong>Geen advertentietekst</strong>.</p>
+      <p>Er zijn twee manieren om tekst te krijgen:</p><ol class="steps">
+      <li><strong>Automatisch ophalen</strong> van de oorspronkelijke advertentie, alleen bij domeinen die je zelf
+        toestaat in <code>ADVERTISER_DETAIL_HOSTS</code> (bijvoorbeeld de site van een dealer). Per controle worden er
+        maximaal <code>MAX_DETAIL_FETCHES_PER_RUN</code> opgehaald (nu ${fmt(s.max_detail_fetches_per_run)}).</li>
+      <li><strong>Zelf plakken</strong> op de pagina van een auto, via <em>Advertentietekst toevoegen</em>. Die tekst
+        wordt bij latere controles nooit overschreven.</li></ol>
+      <p class="muted">Per auto worden alle aanbieders met hun prijs vastgelegd. Een controle die niet volledig is,
+      markeert nooit auto's als verdwenen.</p></div>`, {id: 'over-de-bron'})}`;
+  if (params.get('deel')) document.getElementById(params.get('deel'))?.scrollIntoView({block: 'start'});
 }

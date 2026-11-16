@@ -106,6 +106,8 @@ def empty_stats():
 
 def seed(con):
     snapshot = json.loads(SNAPSHOT.read_text(encoding='utf-8'))
+    for i in (2, 5, 10):  # zoals bij Gaspedaal: geen advertentietekst
+        snapshot['listings'][i]['description'] = ''
     plans = plan_cars(snapshot['listings'])
     today = datetime.now(timezone.utc).date()
     start = today - timedelta(days=DAYS - 1)

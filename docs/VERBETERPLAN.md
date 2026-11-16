@@ -119,7 +119,7 @@ Werk van boven naar beneden. Werk deze tabel bij na elk WP (`☐` → `☑`, met
 | 02 | Betrouwbare voertuigidentiteit en scanrobuustheid | B1 B2 B4 F8 | **Opus** | ☑ 16-11-2026 · 0.6.0 |
 | 03 | Ontwerpsysteem, navigatie en taal | U3 U5 U6 U8 U9 | Sonnet | ☑ 16-11-2026 · 0.7.0 |
 | 04 | Zoekopdrachten beheren, kiezen en budget | F12 F13 F14 U6 | Sonnet | ☑ 16-11-2026 · 0.8.0 |
-| 05 | Advertentietekst beschikbaar krijgen | F1 | Sonnet (eerst nagaan: Opus) | ☐ |
+| 05 | Advertentietekst beschikbaar krijgen | F1 | Sonnet (eerst nagaan: Opus) | ☑ 16-11-2026 · 0.9.0 |
 | 06 | Mijn wensen: toevoegen, synoniemen, direct herrekenen | F2 F3 B3 | Sonnet | ☐ |
 | 07 | Matchscore met onzekerheid, vragen aan de verkoper, corrigeren | F4 F5 F6 | Sonnet | ☐ |
 | 08 | Aanbodlijst en autopagina | F7 F8 B5 U2 U4 U7 | Sonnet | ☐ |
@@ -501,3 +501,25 @@ Deze punten komen uit §9 van het doel, dat ze uitdrukkelijk "nog geen bevestigd
 - Geen omzeiling van toegangsbeperkingen van bronnen; de bestaande toegestane-domeinenlijst blijft leidend.
 - Geen regressie- of machine-learningmodel voor marktwaarde: het aanbod per zoekopdracht is daarvoor te klein. Medianen, kwartielen en één robuuste kilometercorrectie zijn uitlegbaar en voldoende.
 - Geen donkere modus in deze ronde. De tokens uit WP-03 maken dat later eenvoudig.
+
+---
+
+## Veldinventarisatie Gaspedaal
+
+Vastgesteld op 16-11-2026 met `scripts/inspect_occasion_fields.py` op een live zoekpagina (`https://www.gaspedaal.nl/volvo/xc90`, 100 advertenties in de `occasions`-stream; alle advertenties hebben dezelfde sleutels).
+
+| Gevraagd veld | Aanwezig | Sleutel in de stream |
+|---|---|---|
+| Opties / uitrusting | **Nee** | — |
+| Omschrijving | **Nee** | — |
+| Brandstof | Ja | `autogegevens.algemeen.brandstofsoort` |
+| Vermogen | Ja | `autogegevens.motor.vermogenKw` (tekst) |
+| Transmissie | Ja | `autogegevens.algemeen.transmissietype` |
+| Kleur | Ja | `autogegevens.algemeen.kleur` |
+| Datum eerste toelating | Nee | alleen `autogegevens.geschiedenis.bouwjaar` |
+| Plaats | Ja | `aanbieder.aanbiedergegevens.plaatsnaam` |
+| Kenteken | **Nee** | — |
+
+Overige sleutels: `advertentieId`, `datumGeplaatst`, `prijs.totaalInclusiefBtw`, `autogegevens.algemeen.{merknaam, modelnaam, uitvoering, carrosserievorm, aantalDeuren}`, `autogegevens.geschiedenis.kilometerstand`, `autogegevens.motor.motorinhoud`, `aanbieder.aanbiedergegevens.{naamsvermelding, provincieHulpwaarde}`, `gpFotos.{fotoGroot, fotoKlein}`, `portalen[].{klikUrl, portaalBeschrijving, portaalType, portaalFotoUrl, portaalLogoUrl, siteNr}`.
+
+**Gevolg voor WP-05:** er zijn geen uitrustings- of omschrijvingsvelden, dus pad A is niet gebouwd (ook de overige voertuigvelden niet, want die horen bij pad A). Pad B (zelf tekst plakken) en C (zichtbaar maken) zijn gebouwd. Advertentietekst komt alleen via de oorspronkelijke advertentie (`ADVERTISER_DETAIL_HOSTS`) of door hem zelf te plakken.

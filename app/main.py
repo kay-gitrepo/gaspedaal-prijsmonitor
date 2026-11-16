@@ -19,6 +19,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from app.config import settings
 from app.version import VERSION
 from app.db import connect, dumps, init_db, now, rowdict, uid
+from app.extraction import cleaned_text, sha256 as text_hash
 from app.provider import Snapshot, validate_search_url
 from app.scoring import negotiation_snapshot
 from app.worker import start_worker, stop_worker, get_criteria, recalculate_score
@@ -81,6 +82,9 @@ class ReviewBody(BaseModel):
     status: str
     evidence: str | None = Field(default=None,max_length=400)
     reason: str = Field(default='Handmatige verificatie',max_length=300)
+
+class DescriptionBody(BaseModel):
+    text: str = Field(default='',max_length=50000)
 
 class NoteBody(BaseModel):
     offer_eur: int | None = Field(default=None,ge=0)
@@ -159,7 +163,7 @@ def logout(response:Response,_=Depends(require_csrf)):
 def last_run_for(con, profile_id):
     """Latest finished check that covered this profile, with that profile's own outcome when recorded."""
     for run in con.execute('''SELECT id,state,created_at,finished_at,scope_json,summary_json FROM refresh_runs
-                              WHERE finished_at IS NOT NULL ORDER BY created_at DESC LIMIT 200'''):
+                              WHERE finished_at IS NOT NULL ORDER BY created_at DESC,rowid DESC LIMIT 200'''):
         scope=json.loads(run['scope_json'])
         if scope!='all' and profile_id not in (scope.get('profile_ids') or []):continue
         summary=json.loads(run['summary_json'])
@@ -287,7 +291,7 @@ def enqueue_refresh(request:Request,body:RefreshBody,response:Response,
     con.execute('BEGIN IMMEDIATE')
     try:
         attempt_id=uid('ta')
-        prior=con.execute('SELECT * FROM refresh_runs WHERE idempotency_key=? ORDER BY created_at DESC LIMIT 1',
+        prior=con.execute('SELECT * FROM refresh_runs WHERE idempotency_key=? ORDER BY created_at DESC,rowid DESC LIMIT 1',
                           (idempotency_key,)).fetchone() if idempotency_key else None
         if prior:
             con.execute('INSERT INTO trigger_attempts VALUES(?,?,?,?,?,?)',
@@ -317,7 +321,7 @@ def enqueue_refresh(request:Request,body:RefreshBody,response:Response,
 
 @app.get('/api/v1/refresh-runs')
 def runs(_=Depends(require_ui),con=Depends(connection)):
-    items=[dict(r) for r in con.execute('SELECT * FROM refresh_runs ORDER BY created_at DESC LIMIT 100')]
+    items=[dict(r) for r in con.execute('SELECT * FROM refresh_runs ORDER BY created_at DESC,rowid DESC LIMIT 100')]
     for r in items:
         r['summary']=json.loads(r.pop('summary_json'))
         r['scope']=json.loads(r.pop('scope_json'))
@@ -338,13 +342,14 @@ def run_detail(run_id:str,_=Depends(require_ui),con=Depends(connection)):
 @app.get('/api/v1/dashboard')
 def dashboard(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
     if profile_id:
-        rows=[dict(r) for r in con.execute('''SELECT l.id,l.price_eur,l.year,l.kilometers,l.eligibility,l.score_total
-            FROM listings l JOIN profile_listings pl ON pl.listing_id=l.id
+        rows=[dict(r) for r in con.execute('''SELECT l.id,l.price_eur,l.year,l.kilometers,l.eligibility,l.score_total,
+            TRIM(l.description)!='' AS has_text FROM listings l JOIN profile_listings pl ON pl.listing_id=l.id
             WHERE pl.profile_id=? AND pl.status='ACTIVE' ''',(profile_id,))]
         daily=con.execute('''SELECT substr(observed_at,1,10) AS date, listing_id, price_eur FROM price_observations
             WHERE profile_id=? ORDER BY observed_at DESC,id DESC''',(profile_id,)).fetchall()
     else:
-        rows=[dict(r) for r in con.execute("SELECT id,price_eur,year,kilometers,eligibility,score_total FROM listings WHERE availability='ACTIVE'")]
+        rows=[dict(r) for r in con.execute('''SELECT id,price_eur,year,kilometers,eligibility,score_total,
+            TRIM(description)!='' AS has_text FROM listings WHERE availability='ACTIVE' ''')]
         daily=con.execute('SELECT substr(observed_at,1,10) AS date, listing_id, price_eur FROM price_observations ORDER BY observed_at DESC,id DESC').fetchall()
     values=sorted(r['price_eur'] for r in rows)
     # Last observation per vehicle and calendar day, so repeat scans do not overweight a listing.
@@ -354,16 +359,20 @@ def dashboard(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connect
         if key in seen:continue
         seen.add(key);dates.setdefault(r['date'],[]).append(r['price_eur'])
     trend=[{'date':date,'mean_asking':round(sum(p)/len(p)),'count':len(p)} for date,p in sorted(dates.items())][-90:]
+    with_text=[r for r in rows if r['has_text']]
+    # Cars without ad text cannot be judged on equipment, so they do not count towards the average match.
     return {'active_listings':len(rows),'median_asking':values[len(values)//2] if values else None,
             'matches':sum(r['eligibility']=='MATCH' for r in rows),
-            'average_score':round(sum(r['score_total'] for r in rows)/len(rows),1) if rows else 0,
+            'average_score':round(sum(r['score_total'] for r in with_text)/len(with_text),1) if with_text else None,
+            'with_text':len(with_text),
             'price_trend':trend}
 
 @app.get('/api/v1/listings')
 def listings(profile_id:str|None=None,_=Depends(require_ui),con=Depends(connection)):
     # Within one search, the availability shown is that search's own status (e.g. outside its new filters).
     query='''SELECT l.*, (SELECT MIN(price_eur) FROM price_observations p WHERE p.listing_id=l.id) AS lowest_observed_price,
-          (SELECT COUNT(*) FROM price_observations p WHERE p.listing_id=l.id) AS observations'''
+          (SELECT COUNT(*) FROM price_observations p WHERE p.listing_id=l.id) AS observations,
+          TRIM(l.description)!='' AS has_text'''
     params=[]
     if profile_id:
         query+=''',pl.status AS profile_status FROM listings l
@@ -417,6 +426,17 @@ def manual_review(listing_id:str,body:ReviewBody,_=Depends(require_csrf),con=Dep
        (listing_id,body.criterion_key,body.status,body.evidence,body.reason,1,'MANUAL_OVERRIDE',now()))
     score=recalculate_score(con,listing_id,get_criteria(con))
     return {'updated':True,'score':score}
+
+@app.post('/api/v1/listings/{listing_id}/description')
+def set_description(listing_id:str,body:DescriptionBody,_=Depends(require_csrf),con=Depends(connection)):
+    """Pasted ad text (MANUAL) is never overwritten by a check; an empty text removes it again."""
+    row=con.execute('SELECT title FROM listings WHERE id=?',(listing_id,)).fetchone()
+    if not row:raise HTTPException(404,'Auto onbekend')
+    text=body.text.strip()
+    digest=text_hash(cleaned_text(row['title'],text,get_criteria(con)))
+    con.execute('''UPDATE listings SET description=?,description_source=?,text_hash=?,analyzed_hash=NULL,updated_at=?
+                   WHERE id=?''',(text,'MANUAL' if text else None,digest,now(),listing_id))
+    return {'updated':True,'description_source':'MANUAL' if text else None}
 
 @app.post('/api/v1/listings/{listing_id}/notes')
 def add_note(listing_id:str,body:NoteBody,_=Depends(require_csrf),con=Depends(connection)):
