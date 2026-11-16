@@ -97,9 +97,14 @@ def analyze_listing(con, listing_id, run_id, criteria):
     return decision
 
 
+def source_namespace(metadata):
+    """Key namespace per source, not per provider type, so switching provider keeps the same vehicle."""
+    return 'gaspedaal' if str((metadata or {}).get('source', '')).startswith('GASPEDAAL') else 'import'
+
+
 def external_key(profile, metadata, ad_id):
-    """Database key of a vehicle for this profile's source."""
-    return f'{profile["provider"]}:{ad_id}'
+    """Database key of a vehicle: `gaspedaal:<advertentie-id>` or `import:<id>`."""
+    return f'{source_namespace(metadata)}:{ad_id}'
 
 
 def scan_profile(con,run_id,profile,criteria):
@@ -111,10 +116,11 @@ def scan_profile(con,run_id,profile,criteria):
                          (profile['id'],'ACTIVE')).fetchone()[0]
         if prev > 0:
             raise RuntimeError('Lege scan terwijl eerder actief aanbod bestond: geen verdwijningen toegepast')
-    for ad in snapshot.listings:
-        if not (settings.min_price <= ad.price_eur <= settings.max_price):
-            raise ValueError(f'Ongeldige/onwaarschijnlijke vraagprijs: {ad.external_id}')
-    stats={'found':count,'new':0,'price_changes':0,'missing_new':0,'off_market_new':0,'observations':0,
+    # One implausible price must not fail the whole profile: skip that ad, but still count it as seen.
+    invalid=[ad for ad in snapshot.listings if not (settings.min_price <= ad.price_eur <= settings.max_price)]
+    valid_ads=[ad for ad in snapshot.listings if settings.min_price <= ad.price_eur <= settings.max_price]
+    stats={'found':count,'new':0,'price_changes':0,'missing_new':0,'off_market_new':0,'reappeared':0,
+           'skipped_invalid':len(invalid),'observations':0,
            'gemini_calls':0,'gemini_errors':0,'cache_hits':0, 'portals':0,'portal_price_changes':0,'provider_complete':snapshot.complete,
            'provider_metadata':snapshot.metadata}
     # A bounded optional detail pass, outside the database write transaction.
@@ -122,7 +128,7 @@ def scan_profile(con,run_id,profile,criteria):
     if settings.advertiser_detail_hosts.strip():
         used=con.execute('SELECT COUNT(*) FROM source_detail_attempts WHERE run_id=?',(run_id,)).fetchone()[0]
         remaining=max(0,settings.max_detail_fetches_per_run-used)
-        for ad in snapshot.listings:
+        for ad in valid_ads:
             if not remaining:break
             if ad.description.strip() or not ad.portals:continue
             old=con.execute('SELECT description FROM listings WHERE external_id=?',
@@ -144,13 +150,25 @@ def scan_profile(con,run_id,profile,criteria):
     # All observations and missing transitions are committed together for each profile.
     con.execute('BEGIN IMMEDIATE')
     try:
-        for ad in snapshot.listings:
+        for ad in invalid:
+            known=con.execute('SELECT id FROM listings WHERE external_id=?',
+                              (external_key(profile,snapshot.metadata,ad.external_id),)).fetchone()
+            if known:seen.add(known['id'])
+            log_event(con,run_id,'SOURCE','WARN','Advertentie overgeslagen: onwaarschijnlijke vraagprijs',
+                      {'profile_id':profile['id'],'external_id':ad.external_id,'price_eur':ad.price_eur})
+        for ad in valid_ads:
             ext_id=external_key(profile,snapshot.metadata,ad.external_id)
             previous=con.execute('SELECT * FROM listings WHERE external_id=?',(ext_id,)).fetchone()
             listing_id=previous['id'] if previous else uid('car')
             clean=cleaned_text(ad.title,ad.description,criteria)
             content_hash=text_hash(clean)
             if previous:
+                membership=con.execute('SELECT status FROM profile_listings WHERE profile_id=? AND listing_id=?',
+                                       (profile['id'],listing_id)).fetchone()
+                if membership and membership['status']!='ACTIVE':
+                    stats['reappeared']+=1
+                    con.execute('INSERT INTO listing_events(run_id,listing_id,event_type,new_price,created_at) VALUES(?,?,?,?,?)',
+                                (run_id,listing_id,'REAPPEARED',ad.price_eur,now()))
                 if ad.price_eur != previous['price_eur']:
                     stats['price_changes']+=1
                     con.execute('INSERT INTO listing_events(run_id,listing_id,event_type,previous_price,new_price,created_at) VALUES(?,?,?,?,?,?)',
@@ -158,17 +176,19 @@ def scan_profile(con,run_id,profile,criteria):
                 # analyze_listing checks a content+criteria+model fingerprint and skips cache hits.
                 candidate_ids.add(listing_id)
                 con.execute('''UPDATE listings SET title=?,url=?,year=?,kilometers=?,trim=?,seller=?,price_eur=?,
+                   license_plate=COALESCE(?,license_plate),
                    description=?,text_hash=?,last_seen=?,updated_at=?,availability='ACTIVE',photos_json=? WHERE id=?''',
-                   (ad.title,ad.url,ad.year,ad.kilometers,ad.trim,ad.seller,ad.price_eur,
+                   (ad.title,ad.url,ad.year,ad.kilometers,ad.trim,ad.seller,ad.price_eur,ad.license_plate,
                     ad.description or previous['description'],content_hash if ad.description or not previous['description'] else previous['text_hash'],now(),now(),
                     dumps(ad.photos or json.loads(previous['photos_json'] or '[]')),listing_id))
             else:
                 stats['new']+=1
                 candidate_ids.add(listing_id)
                 con.execute('''INSERT INTO listings(id,external_id,title,url,year,kilometers,trim,seller,price_eur,
-                  description,text_hash,first_seen,last_seen,updated_at,photos_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  description,text_hash,first_seen,last_seen,updated_at,photos_json,license_plate)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                   (listing_id,ext_id,ad.title,ad.url,ad.year,ad.kilometers,ad.trim,ad.seller,ad.price_eur,
-                   ad.description,content_hash,now(),now(),now(),dumps(ad.photos)))
+                   ad.description,content_hash,now(),now(),now(),dumps(ad.photos),ad.license_plate))
                 con.execute('INSERT INTO listing_events(run_id,listing_id,event_type,new_price,created_at) VALUES(?,?,?,?,?)',
                             (run_id,listing_id,'FIRST_SEEN',ad.price_eur,now()))
             # One car, multiple advertisers; retain per-portal price measurements.
@@ -272,7 +292,7 @@ def execute_run(run_id):
         criteria=get_criteria(con)
         totals={'profiles':len(profiles),'profiles_ok':0,'profiles_partial':0,'profiles_failed':0,
                 'found':0,'new':0,'price_changes':0,'missing_new':0,'off_market_new':0,
-                'observations':0,'gemini_calls':0,'gemini_errors':0,'cache_hits':0,'portals':0,'portal_price_changes':0}
+                'reappeared':0,'skipped_invalid':0,'observations':0,'gemini_calls':0,'gemini_errors':0,'cache_hits':0,'portals':0,'portal_price_changes':0}
         errors=[]
         for profile in profiles:
             log_event(con,run_id,'PROFILE','INFO',f'Scan gestart: {profile["title"]}')

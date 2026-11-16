@@ -116,7 +116,7 @@ Werk van boven naar beneden. Werk deze tabel bij na elk WP (`☐` → `☑`, met
 | WP | Titel | Lost op | Model | Status |
 |---|---|---|---|---|
 | 01 | Fundament: dev-omgeving, migraties, frontend in modules, adressen per scherm | U1 | Sonnet | ☑ 16-11-2026 · 0.5.0 |
-| 02 | Betrouwbare voertuigidentiteit en scanrobuustheid | B1 B2 B4 F8 | **Opus** | ☐ |
+| 02 | Betrouwbare voertuigidentiteit en scanrobuustheid | B1 B2 B4 F8 | **Opus** | ☑ 16-11-2026 · 0.6.0 |
 | 03 | Ontwerpsysteem, navigatie en taal | U3 U5 U6 U8 U9 | Sonnet | ☐ |
 | 04 | Zoekopdrachten beheren, kiezen en budget | F12 F13 F14 U6 | Sonnet | ☐ |
 | 05 | Advertentietekst beschikbaar krijgen | F1 | Sonnet (eerst nagaan: Opus) | ☐ |
@@ -176,6 +176,7 @@ Na WP-08 is de app in dagelijks gebruik merkbaar beter; WP-10 en WP-11 leveren d
 4. **Terugkeer.** Als een bestaande auto wordt gezien terwijl `profile_listings.status` niet `ACTIVE` was: gebeurtenis `REAPPEARED` (met `new_price`) en teller `reappeared`.
 5. **Kenteken.** Kolom `listings.license_plate` (migratie), gevuld bij insert en update.
 6. ⚠ **Eerst nagaan:** bevat de Gaspedaal-stream een kenteken? Zo ja: als een **nieuwe** advertentie hetzelfde kenteken heeft als een auto met status `OFF_MARKET`, leg dan gebeurtenis `RELISTED` vast op de nieuwe auto en vul kolom `listings.relisted_from`. Zo nee: dit onderdeel overslaan en dat in dit document noteren.
+   > **Uitkomst (16-11-2026):** nagegaan op een live zoekpagina (`/volvo/xc90`, 100 advertenties, met `scripts/inspect_occasion_fields.py`). De `occasions`-stream bevat **geen kenteken**. `RELISTED` en `listings.relisted_from` zijn daarom niet gebouwd. De kolom `license_plate` bestaat wel en wordt gevuld zodra een bron (JSON-import of API) een kenteken levert.
 
 **Klaar als.** Tests voor: migratie zonder en met botsing (historie van beide rijen blijft, in tijdsvolgorde); wisselen van provider maakt geen nieuwe auto; ongeldige prijs → scan `COMPLETE`, auto niet verdwenen; verdwenen-en-terug → één `REAPPEARED`.
 

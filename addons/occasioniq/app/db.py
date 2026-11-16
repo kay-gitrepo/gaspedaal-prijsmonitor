@@ -146,10 +146,121 @@ def _m1_photos(con):
     add_column(con, 'listings', 'photos_json', "TEXT NOT NULL DEFAULT '[]'")
 
 
+def _m2_license_plate(con):
+    add_column(con, 'listings', 'license_plate', 'TEXT')
+
+
+def merge_listings(con, keep, drop):
+    """Fold vehicle row `drop` into `keep` without losing history; `drop` is deleted afterwards.
+
+    Price observations are never changed except for their vehicle reference. Manual evidence wins over
+    automatic claims; the most recently seen row supplies the current listing fields.
+    """
+    k = con.execute('SELECT * FROM listings WHERE id=?', (keep,)).fetchone()
+    d = con.execute('SELECT * FROM listings WHERE id=?', (drop,)).fetchone()
+    for table in ('listing_events', 'integration_requests', 'negotiation_notes', 'source_detail_attempts'):
+        con.execute(f'UPDATE {table} SET listing_id=? WHERE listing_id=?', (keep, drop))
+    con.execute('UPDATE OR IGNORE price_observations SET listing_id=? WHERE listing_id=?', (keep, drop))
+    if con.execute('SELECT 1 FROM price_observations WHERE listing_id=?', (drop,)).fetchone():
+        raise RuntimeError(f'Samenvoegen {drop} → {keep}: dubbele prijsobservatie in dezelfde controle')
+    con.execute('''INSERT OR IGNORE INTO source_price_observations(run_id,listing_id,portal_id,site,price_eur,observed_at)
+                   SELECT run_id,?,portal_id,site,price_eur,observed_at FROM source_price_observations
+                   WHERE listing_id=?''', (keep, drop))
+    con.execute('DELETE FROM source_price_observations WHERE listing_id=?', (drop,))
+    con.execute('''INSERT OR IGNORE INTO listing_sources(listing_id,portal_id,site,kind,click_url,source_url,price_eur,
+                   first_seen,last_seen) SELECT ?,portal_id,site,kind,click_url,source_url,price_eur,first_seen,last_seen
+                   FROM listing_sources WHERE listing_id=?''', (keep, drop))
+    con.execute('DELETE FROM listing_sources WHERE listing_id=?', (drop,))
+    for claim in con.execute('SELECT * FROM claims WHERE listing_id=?', (drop,)).fetchall():
+        own = con.execute('SELECT * FROM claims WHERE listing_id=? AND criterion_key=?',
+                          (keep, claim['criterion_key'])).fetchone()
+        manual = claim['source'] == 'MANUAL_OVERRIDE'
+        own_manual = own is not None and own['source'] == 'MANUAL_OVERRIDE'
+        if own is None or (manual and (not own_manual or claim['updated_at'] > own['updated_at'])):
+            con.execute('''INSERT OR REPLACE INTO claims(listing_id,criterion_key,status,evidence,reason,confidence,
+                           source,updated_at) VALUES(?,?,?,?,?,?,?,?)''',
+                        (keep, claim['criterion_key'], claim['status'], claim['evidence'], claim['reason'],
+                         claim['confidence'], claim['source'], claim['updated_at']))
+    con.execute('DELETE FROM claims WHERE listing_id=?', (drop,))
+    for entry in con.execute('SELECT * FROM profile_listings WHERE listing_id=?', (drop,)).fetchall():
+        own = con.execute('SELECT * FROM profile_listings WHERE profile_id=? AND listing_id=?',
+                          (entry['profile_id'], keep)).fetchone()
+        if own is None:
+            con.execute('UPDATE profile_listings SET listing_id=? WHERE profile_id=? AND listing_id=?',
+                        (keep, entry['profile_id'], drop))
+            continue
+        if entry['last_seen'] > own['last_seen']:
+            con.execute('''UPDATE profile_listings SET last_seen=?,missing_since=?,missing_checks=?,status=?
+                           WHERE profile_id=? AND listing_id=?''',
+                        (entry['last_seen'], entry['missing_since'], entry['missing_checks'], entry['status'],
+                         entry['profile_id'], keep))
+        con.execute('DELETE FROM profile_listings WHERE profile_id=? AND listing_id=?', (entry['profile_id'], drop))
+    newest = d if d['last_seen'] > k['last_seen'] else k
+    description = newest['description'] if newest['description'].strip() else (
+        k['description'] if k['description'].strip() else d['description'])
+    text_hash = newest['text_hash'] if newest['description'].strip() else (
+        k['text_hash'] if k['description'].strip() else d['text_hash'])
+    con.execute('''UPDATE listings SET title=?,url=?,year=?,kilometers=?,trim=?,seller=?,price_eur=?,photos_json=?,
+                   description=?,text_hash=?,first_seen=?,last_seen=?,updated_at=?,favorite=?,
+                   license_plate=COALESCE(license_plate,?),analyzed_hash=NULL WHERE id=?''',
+                (newest['title'], newest['url'], newest['year'], newest['kilometers'], newest['trim'],
+                 newest['seller'], newest['price_eur'], newest['photos_json'], description, text_hash,
+                 min(k['first_seen'], d['first_seen']), max(k['last_seen'], d['last_seen']), now(),
+                 max(k['favorite'], d['favorite']), d['license_plate'], keep))
+    con.execute('DELETE FROM listings WHERE id=?', (drop,))
+    refresh_availability(con, [keep])
+
+
+def refresh_availability(con, listing_ids):
+    """Active anywhere wins; then 'not seen recently'; else off market. Rows without membership stay as they are."""
+    for listing_id in listing_ids:
+        con.execute('''UPDATE listings SET availability=CASE
+            WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id AND p.status='ACTIVE')
+              THEN 'ACTIVE'
+            WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id
+                         AND p.status='MISSING_UNCONFIRMED') THEN 'MISSING_UNCONFIRMED'
+            WHEN EXISTS (SELECT 1 FROM profile_listings p WHERE p.listing_id=listings.id) THEN 'OFF_MARKET'
+            ELSE availability END WHERE id=?''', (listing_id,))
+
+
+def identity_target(con, row):
+    """New vehicle key per source namespace (WP-02): `gaspedaal:<id>` or `import:<id>`."""
+    prefix, sep, rest = row['external_id'].partition(':')
+    if not sep or prefix in ('gaspedaal', 'import'):
+        return row['external_id']
+    if prefix == 'gaspedaal_site':
+        return f'gaspedaal:{rest}'
+    if prefix == 'fixture':
+        # A JSON-import profile without payload was read live from the search URL (fallback in provider_for).
+        live = [r[0] for r in con.execute('''SELECT sp.fixture_payload IS NULL FROM profile_listings pl
+                    JOIN search_profiles sp ON sp.id=pl.profile_id WHERE pl.listing_id=?''', (row['id'],))]
+        return f'gaspedaal:{rest}' if live and all(live) else f'import:{rest}'
+    return row['external_id']
+
+
+def _m3_vehicle_identity(con):
+    rows = con.execute('SELECT id,external_id,first_seen FROM listings').fetchall()
+    groups = {}
+    for row in rows:
+        groups.setdefault(identity_target(con, row), []).append(row)
+    for target, members in groups.items():
+        members.sort(key=lambda r: (r['first_seen'], r['id']))
+        keeper = members[0]
+        for other in members[1:]:
+            merge_listings(con, keeper['id'], other['id'])
+        if keeper['external_id'] != target:
+            con.execute('UPDATE listings SET external_id=? WHERE id=?', (target, keeper['id']))
+
+
+_m3_vehicle_identity.changes_data = True
+
+
 # (versie, functie). Functies met attribuut `changes_data = True` wijzigen bestaande rijen;
 # vóór de eerste daarvan wordt een back-up van het databasebestand gemaakt.
 MIGRATIONS = [
     (1, _m1_photos),
+    (2, _m2_license_plate),
+    (3, _m3_vehicle_identity),
 ]
 
 
