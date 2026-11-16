@@ -65,3 +65,15 @@ def test_parse_nextjs_flight_occasions():
     ad=ads[0]
     assert (ad.external_id,ad.price_eur,ad.year,ad.kilometers,ad.title)==('1',38950,2019,100000,'Volvo XC90 T8')
     assert ad.portals[0].site=='AutoTrack' and ad.portals[0].portal_id=='42'
+
+
+class _P(dict):
+    pass
+
+
+def test_profile_without_snapshot_uses_search_url_when_approved(monkeypatch):
+    from app import provider
+    import app.config as cfg
+    monkeypatch.setattr(cfg,'settings',SimpleNamespace(data_source_approved=True))
+    assert isinstance(provider.provider_for(_P({'provider':'fixture','fixture_payload':None})),site.GaspedaalSiteProvider)
+    assert isinstance(provider.provider_for(_P({'provider':'fixture','fixture_payload':'{}'})),provider.FixtureProvider)

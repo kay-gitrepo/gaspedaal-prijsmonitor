@@ -64,6 +64,11 @@ class FixtureProvider:
 
 
 def provider_for(profile):
+    from app.config import settings
+    # Profiel zonder JSON-import (bijv. aangemaakt vóór activering van de bron): gebruik de zoeklink.
+    if profile['provider'] == 'fixture' and not (profile['fixture_payload'] if 'fixture_payload' in profile.keys() else None) and settings.data_source_approved:
+        from app.gaspedaal_site import GaspedaalSiteProvider
+        return GaspedaalSiteProvider()
     if profile['provider'] == 'fixture':
         return FixtureProvider()
     if profile['provider'] == 'gaspedaal_site':
