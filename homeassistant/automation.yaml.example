@@ -8,3 +8,39 @@
   actions:
     - action: rest_command.gaspedaal_prijsmonitor_refresh
   mode: single
+
+# Eén gebundelde melding zodra er een nieuwe controle is verwerkt én er iets te melden valt:
+# nieuwe auto's die voldoen, prijsverlagingen op je shortlist, auto's die binnen budget kwamen,
+# of een mislukte controle. Vervang notify.mobile_app_telefoon door je eigen notify-dienst.
+- id: occasioniq_melding_na_controle
+  alias: "OccasionIQ - melding na controle"
+  description: "Leest de samenvatting van de app; de app stuurt zelf geen meldingen."
+  triggers:
+    - trigger: state
+      entity_id: sensor.occasioniq_laatste_controle
+  conditions:
+    - condition: template
+      value_template: >-
+        {{ trigger.from_state is not none
+           and trigger.to_state.state not in ['unknown', 'unavailable', 'geen']
+           and state_attr('sensor.occasioniq_laatste_controle', 'has_news') }}
+  actions:
+    - action: notify.mobile_app_telefoon
+      data:
+        title: "OccasionIQ"
+        message: "{{ state_attr('sensor.occasioniq_laatste_controle', 'message') }}"
+        data:
+          url: "http://192.168.1.100:8099/#/aanbod"
+  mode: single
+
+# Tip: laat de sensor direct na de dagelijkse controle verversen in plaats van op het interval te wachten.
+- id: occasioniq_samenvatting_verversen
+  alias: "OccasionIQ - samenvatting verversen"
+  triggers:
+    - trigger: time
+      at: "08:10:00"
+  actions:
+    - action: homeassistant.update_entity
+      target:
+        entity_id: sensor.occasioniq_laatste_controle
+  mode: single

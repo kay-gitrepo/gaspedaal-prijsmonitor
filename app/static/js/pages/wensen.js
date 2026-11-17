@@ -13,6 +13,7 @@ const open = new Set();
 const q = () => `profile_id=${encodeURIComponent(profile)}`;
 const GROUPS = [['MUST_HAVE', 'Must-haves', 'Ontbreekt er één aantoonbaar, dan valt de auto af.'],
   ['NICE_TO_HAVE', 'Nice-to-haves', 'Leveren extra punten op in de match.']];
+const EMPTY_COLUMN = '<p class="muted">Sleep een wens hierheen, of kies “Verplaats naar” in het menu van een wens.</p>';
 const WEIGHTS = [1, 2, 3, 4, 5].map(w => [String(w), String(w)]);
 
 export function skeleton() {
@@ -60,7 +61,7 @@ function board() {
     return `<section class="card wish-column" data-drop-group="${group}" aria-labelledby="col-${group}">
       <div class="card-head"><div><h3 id="col-${group}">${title}</h3><p>${text}</p></div>
       <span class="badge badge-neutral">${fmt(list.length)}</span></div>
-      <div class="stack">${list.map(wishCard).join('') || '<p class="muted">Sleep een wens hierheen, of kies “Verplaats naar” in het menu van een wens.</p>'}</div></section>`;
+      <div class="stack">${list.map(wishCard).join('') || EMPTY_COLUMN}</div></section>`;
   }).join('');
 }
 

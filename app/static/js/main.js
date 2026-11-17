@@ -8,17 +8,18 @@ import {refreshStatus} from './freshness.js';
 import * as overzicht from './pages/overzicht.js';
 import * as aanbod from './pages/aanbod.js';
 import * as auto from './pages/auto.js';
+import * as shortlist from './pages/shortlist.js';
 import * as wensen from './pages/wensen.js';
 import * as zoekopdrachten from './pages/zoekopdrachten.js';
 import * as controles from './pages/controles.js';
 import * as aiAnalyse from './pages/ai-analyse.js';
 import * as instellingen from './pages/instellingen.js';
 
-const BASE = {overzicht, aanbod, auto, wensen, zoekopdrachten, controles, 'ai-analyse': aiAnalyse, instellingen};
+const BASE = {overzicht, aanbod, shortlist, auto, wensen, zoekopdrachten, controles, 'ai-analyse': aiAnalyse, instellingen};
 /* Detailvensters op beheerschermen; de auto heeft een eigen pagina. */
 const DETAIL = {};
 const TITLES = {
-  overzicht: 'Overzicht', aanbod: 'Aanbod', auto: 'Auto', wensen: 'Mijn wensen', zoekopdrachten: 'Zoekopdrachten',
+  overzicht: 'Overzicht', aanbod: 'Aanbod', shortlist: 'Shortlist', auto: 'Auto', wensen: 'Mijn wensen', zoekopdrachten: 'Zoekopdrachten',
   controles: 'Controles', 'ai-analyse': 'AI-beoordeling', instellingen: 'Instellingen',
 };
 const MODULES = Object.values(BASE);

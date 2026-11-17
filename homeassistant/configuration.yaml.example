@@ -9,3 +9,27 @@ rest_command:
       Authorization: !secret gaspedaal_prijsmonitor_bearer
     payload: '{"scope":"all","reason":"scheduled_ha"}'
     timeout: 15
+
+# Optioneel: samenvatting van de laatste controle teruglezen (voor meldingen).
+# De app stuurt zelf niets; Home Assistant leest dit en beslist over een melding.
+rest:
+  - resource: "http://192.168.1.100:8099/api/v1/ha/summary"
+    headers:
+      Authorization: !secret gaspedaal_prijsmonitor_bearer
+    scan_interval: 900
+    sensor:
+      - name: "OccasionIQ laatste controle"
+        unique_id: occasioniq_laatste_controle
+        value_template: "{{ value_json.based_on_run_id or 'geen' }}"
+        json_attributes:
+          - last_run
+          - counts
+          - has_news
+          - message
+          - new_matches
+          - shortlist_price_drops
+          - within_budget
+      - name: "OccasionIQ auto's die voldoen"
+        unique_id: occasioniq_voldoen
+        value_template: "{{ value_json.counts.matches }}"
+        unit_of_measurement: "auto's"

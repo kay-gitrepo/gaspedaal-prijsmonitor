@@ -11,6 +11,9 @@ import {inView, priceChange} from './aanbod.js';
 import {negotiationHtml, negotiationSubmits} from '../negotiation.js';
 import {follow} from '../refresh.js';
 import {profileId} from '../context.js';
+import {copyDossier} from '../dossier.js';
+
+let current = null;
 
 let wantedProfile = '';
 
@@ -64,7 +67,8 @@ function header(x) {
       <span class="muted small">${icon('clock', 'icon-sm')} in beeld ${inView(x)}</span>${chips.join('')}</div></div>
     <div class="row">${button(x.favorite ? 'Op je shortlist' : 'Op shortlist zetten', {icon: 'star', size: 's',
       action: 'favorite', data: {id: x.id}, cls: x.favorite ? 'star on' : 'star',
-      attrs: {'aria-pressed': x.favorite ? 'true' : 'false'}})}${adButton(x)}</div></div>
+      attrs: {'aria-pressed': x.favorite ? 'true' : 'false'}})}${button('Dossier kopiëren', {icon: 'copy', size: 's',
+      action: 'dossier'})}${adButton(x)}</div></div>
     <nav class="anchor-nav" aria-label="Onderdelen">${sections.map(([id, t]) => `<button type="button" class="anchor"
       data-action="goto" data-target="${id}">${t}</button>`).join('')}</nav></div></div>`;
 }
@@ -224,6 +228,7 @@ function wishContext(x) {
 export async function render(params, id) {
   wantedProfile = params?.get('zoekopdracht') || profileId() || '';
   const [x, v] = await load(id);
+  current = {x, v};
   document.title = `${x.title} · OccasionIQ`;
   $('#content').innerHTML = page(x, v);
 }
@@ -232,6 +237,7 @@ export async function render(params, id) {
 async function reload(id) {
   const y = window.scrollY;
   const [x, v] = await load(id);
+  current = {x, v};
   $('#content').innerHTML = page(x, v);
   window.scrollTo(0, y);
 }
@@ -239,6 +245,9 @@ async function reload(id) {
 const equipment = equipmentActions(reload);
 
 export const actions = {
+  async dossier() {
+    if (current) await copyDossier(current.x, current.v);
+  },
   ...equipment.actions,
   goto(el) {
     document.getElementById(el.dataset.target)?.scrollIntoView({block: 'start'});

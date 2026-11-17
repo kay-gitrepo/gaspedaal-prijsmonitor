@@ -41,6 +41,14 @@ export async function render(params = new URLSearchParams()) {
       <li>Stel <code>GEMINI_API_KEY</code> in voor AI-beoordeling. Zonder sleutel werkt herkenning zonder AI.</li>
       <li>Kijk bij <strong>Controles</strong> of elke controle volledig is geslaagd.</li></ol>`)}
     </div>
+    ${card('Meldingen via Home Assistant', `<p class="muted">De app stuurt zelf geen meldingen. Home Assistant kan na
+      een controle de samenvatting lezen en één gebundelde melding sturen over nieuwe auto's die voldoen,
+      prijsverlagingen op je shortlist en auto's die binnen budget kwamen.</p>
+      <pre class="json">GET http://&lt;server-ip&gt;:8099/api/v1/ha/summary
+Authorization: Bearer &lt;HA_REFRESH_TOKEN&gt;</pre>
+      <p class="muted small">Voorbeelden voor een REST-sensor en de automatisering staan in de map
+      <code>homeassistant/</code> van het project. Het veld <code>has_news</code> geeft aan of er iets te melden is;
+      <code>message</code> bevat de tekst.</p>`)}
     ${card('Gegevensbronnen', source, {sub: 'Wordt ingesteld via omgevingsvariabelen of de add-on-opties'})}
     ${card('Advertentietekst en de bron', `<div class="stack"><p>De zoekresultaten van Gaspedaal bevatten geen
       advertentietekst en geen uitrustingslijst. Zonder tekst kan de app niet zien of een auto bijvoorbeeld een trekhaak

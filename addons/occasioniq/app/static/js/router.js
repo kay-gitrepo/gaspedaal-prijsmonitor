@@ -1,5 +1,5 @@
 /* Hash-router: elk scherm een eigen adres, zodat herladen en de terugknop werken. */
-export const PAGES = ['overzicht', 'aanbod', 'auto', 'wensen', 'zoekopdrachten', 'controles', 'ai-analyse',
+export const PAGES = ['overzicht', 'aanbod', 'shortlist', 'auto', 'wensen', 'zoekopdrachten', 'controles', 'ai-analyse',
   'instellingen'];
 
 export function parseHash(hash = location.hash) {

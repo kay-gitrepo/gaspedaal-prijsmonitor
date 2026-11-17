@@ -128,7 +128,7 @@ Werk van boven naar beneden. Werk deze tabel bij na elk WP (`☐` → `☑`, met
 | 11 | Marktoverzicht dat de zeven vragen beantwoordt | F11 F12 B6 U7 | **Opus** (rekenwerk), Sonnet (UI) | ☑ 17-11-2026 · 0.15.0 |
 | 12 | Inzicht in de AI-beoordeling | F16 | Sonnet | ☑ 17-11-2026 · 0.16.0 |
 | 13 | Wensen per zoekopdracht | F13 | **Opus** | ☑ 17-11-2026 · 0.17.0 |
-| 14 | Optioneel, eerst bevestigen: meldingen via Home Assistant, shortlist vergelijken, dossier | F17, doel §9 | Sonnet | ☐ |
+| 14 | Optioneel, eerst bevestigen: meldingen via Home Assistant, shortlist vergelijken, dossier | F17, doel §9 | Sonnet | ☑ 17-11-2026 · 0.18.0 (A, B, C na akkoord; D bewust niet) |
 
 Na WP-08 is de app in dagelijks gebruik merkbaar beter; WP-10 en WP-11 leveren de kern van het doel (marktinzicht en onderhandelen).
 
@@ -487,6 +487,8 @@ Deze punten komen uit §9 van het doel, dat ze uitdrukkelijk "nog geen bevestigd
 - **B. Shortlist vergelijken.** Pagina `#/shortlist`: alle favorieten, ook verdwenen. Maximaal vier aanvinken → vergelijking naast elkaar: foto, prijs en verloop, km, bouwjaar, t.o.v. markt, match, en per wens een rij met de status per auto.
 - **C. Onderhandelingsdossier.** Knop op de autopagina "Dossier kopiëren": Markdown met de kerngegevens, de prijsgeschiedenis, de argumenten en vergelijkbare auto's met links, de open vragen en de eigen notities.
 - **D. Totale waarde** (afschrijving, onderhoud, garantie): niet bouwen zonder aparte uitwerking; de app heeft hier geen betrouwbare gegevens voor.
+
+> **Uitvoering (17-11-2026):** A, B en C gebouwd na akkoord van de gebruiker; D niet. De samenvatting geeft links als relatief pad (`/#/auto/<id>`), omdat de app zijn eigen adres niet kent; het voorbeeld in `homeassistant/` zet het serveradres ervoor. Daarnaast levert de samenvatting een kant-en-klare meldingstekst (`message`) en een vlag `has_news`. Als "binnen budget gekomen" telt een prijsverlaging onder het budget én een nieuwe auto die al onder het budget zit.
 
 ---
 

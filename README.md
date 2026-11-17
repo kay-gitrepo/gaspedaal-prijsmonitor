@@ -1,6 +1,6 @@
 # OccasionIQ – Gaspedaal prijsmonitor en XC90 aankoopassistent
 
-**Status: v0.17.0.** Het verbeterplan ([`docs/VERBETERPLAN.md`](docs/VERBETERPLAN.md)) is uitgevoerd tot en met WP-13; WP-14 (meldingen via Home Assistant, shortlist vergelijken, dossier) wacht op akkoord. Het exacte interne Gaspedaal-zoek-endpoint is **nog niet geïdentificeerd of live getest**; de API-adapter staat daarom standaard uit. Zie ook [`docs/DIRECTE_GASPEDAAL_API.md`](docs/DIRECTE_GASPEDAAL_API.md) en de oorspronkelijke [`bouwspecificatie`](docs/BOUWSPECIFICATIE.md).
+**Status: v0.18.0.** Het verbeterplan ([`docs/VERBETERPLAN.md`](docs/VERBETERPLAN.md)) is volledig uitgevoerd, inclusief meldingen via Home Assistant, de shortlist-vergelijking en het onderhandelingsdossier. Het exacte interne Gaspedaal-zoek-endpoint is **nog niet geïdentificeerd of live getest**; de API-adapter staat daarom standaard uit. Zie ook [`docs/DIRECTE_GASPEDAAL_API.md`](docs/DIRECTE_GASPEDAAL_API.md) en de oorspronkelijke [`bouwspecificatie`](docs/BOUWSPECIFICATIE.md).
 
 ## Nieuw sinds v0.5
 

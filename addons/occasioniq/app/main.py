@@ -22,6 +22,7 @@ from app.db import connect, dumps, init_db, insert_default_criteria, now, rowdic
 from app.extraction import cleaned_text, sha256 as text_hash
 from app.insights import first_photo, listing_insights
 from app import changes as run_changes
+from app.ha_summary import summary as build_ha_summary
 from app.valuation_data import market_positions, valuation_for
 from app.market_data import market_overview
 from app.provider import Snapshot, validate_search_url
@@ -534,6 +535,15 @@ def run_detail(run_id:str,_=Depends(require_ui),con=Depends(connection)):
     data['gemini_requests']=[dict(r) for r in con.execute('''SELECT id,listing_id,decision,model_id,tokens_in,tokens_out,error,created_at
                                                      FROM integration_requests WHERE run_id=? ORDER BY created_at''',(run_id,))]
     return data
+
+@app.get('/api/v1/ha/summary')
+def ha_summary(request:Request,con=Depends(connection)):
+    """Voor Home Assistant (bearer-token zoals de trigger) of de ingelogde gebruiker: uitkomst van de laatste
+    controle, aantallen en wat het melden waard is. De app stuurt zelf geen meldingen."""
+    bearer=request.headers.get('authorization','')
+    if not (settings.ha_refresh_token and secrets.compare_digest(bearer,f'Bearer {settings.ha_refresh_token}')):
+        require_ui(request)
+    return build_ha_summary(con)
 
 @app.get('/api/v1/status')
 def check_status(_=Depends(require_ui),con=Depends(connection)):

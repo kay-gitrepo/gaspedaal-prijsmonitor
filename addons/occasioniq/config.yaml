@@ -1,5 +1,5 @@
 name: OccasionIQ Prijsmonitor
-version: "0.17.0"
+version: "0.18.0"
 slug: occasioniq_prijsmonitor
 description: Volvo XC90 vraagprijs- en uitrustingsmonitor met externe Home Assistant refresh-trigger
 url: https://www.gaspedaal.nl
