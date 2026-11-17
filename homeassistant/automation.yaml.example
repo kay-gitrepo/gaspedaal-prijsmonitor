@@ -18,12 +18,13 @@
   triggers:
     - trigger: state
       entity_id: sensor.occasioniq_laatste_controle
+      not_from: [unknown, unavailable]
+      not_to: [unknown, unavailable, geen]
   conditions:
-    - condition: template
-      value_template: >-
-        {{ trigger.from_state is not none
-           and trigger.to_state.state not in ['unknown', 'unavailable', 'geen']
-           and state_attr('sensor.occasioniq_laatste_controle', 'has_news') }}
+    - condition: state
+      entity_id: sensor.occasioniq_laatste_controle
+      attribute: has_news
+      state: true
   actions:
     - action: notify.mobile_app_telefoon
       data:

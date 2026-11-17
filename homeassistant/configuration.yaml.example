@@ -20,9 +20,11 @@ rest:
     sensor:
       - name: "OccasionIQ laatste controle"
         unique_id: occasioniq_laatste_controle
-        value_template: "{{ value_json.based_on_run_id or 'geen' }}"
+        # Id van de laatst afgeronde controle (ook een mislukte), zodat elke controle de sensor verandert.
+        value_template: "{{ (value_json.last_run or {}).get('id') or 'geen' }}"
         json_attributes:
           - last_run
+          - based_on_run_id
           - counts
           - has_news
           - message
