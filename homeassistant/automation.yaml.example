@@ -32,6 +32,10 @@
         message: "{{ state_attr('sensor.occasioniq_laatste_controle', 'message') }}"
         data:
           url: "http://192.168.1.100:8099/#/aanbod"
+          clickAction: "http://192.168.1.100:8099/#/aanbod"
+          # Zonder hoge prioriteit houdt Android de melding bij energiebesparing soms lang vast.
+          priority: high
+          ttl: 0
   mode: single
 
 # Tip: laat de sensor direct na de dagelijkse controle verversen in plaats van op het interval te wachten.
